@@ -1,0 +1,36 @@
+{
+  "extends": [
+    "next/core-web-vitals",
+    "next/typescript",
+    "plugin:security/recommended-legacy"
+  ],
+  "plugins": ["security"],
+  "overrides": [
+    {
+      "files": ["src/app/**/*.{ts,tsx}", "src/components/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@supabase/*", "@supabase/**"],
+                "message": "Pages, layouts, routes, and components must never import a Supabase client directly. Call into src/modules/*/actions.ts (the Controller layer) instead. See docs/FOLDER_STRUCTURE.md."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/lib/supabase/**/*.{ts,tsx}",
+        "src/modules/*/queries.ts",
+        "src/modules/*/mutations.ts"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
+}
