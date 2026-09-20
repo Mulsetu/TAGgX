@@ -9,14 +9,14 @@ import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { requirePermission } from "@/lib/permissions/has-permission";
 import { createClient } from "@/lib/supabase/server";
 import { sendUserInviteEmail } from "@/lib/email";
-import { createSystemAdminRole } from "@/modules/roles/mutations";
+import { createSystemAdminRole, seedDefaultCompanyRoles } from "@/modules/roles/mutations";
 import { seedDefaultAssetStatuses } from "@/modules/statuses/mutations";
 import { seedDefaultAssetConditions } from "@/modules/conditions/mutations";
 import { uploadFileToR2 } from "@/modules/storage/mutations";
 import { createCompanySchema, slugSchema, updateCompanyBrandingSchema, updateCompanySchema, updateWorkspaceSettingsSchema } from "./validation";
 import { getCompanyBySlug, getCompanyById, getCompanyWorkspaceSettings, getUserIdsForCompany, listCompanies } from "./queries";
 import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/queries";
-import { applyPlanLimitsToCompany, upsertCompanySubscription } from "@/modules/billing/mutations";
+import { applyPlanLimitsToCompany, insertBillingPayment, upsertCompanySubscription } from "@/modules/billing/mutations";
 import {
   createCompany,
   createCompanyInvite,
@@ -42,12 +42,17 @@ import { FEATURE_MODULES, clampModulesToPlan, parseEnabledModules, parsePlanModu
 import {
   ASSET_FIELD_KEYS,
   DASHBOARD_WIDGET_KEYS,
+  DASHBOARD_WIDGET_SIZES,
   WORKFLOW_KEYS,
   parseAssetFieldConfig,
   parseCatalogText,
+  parseDashboardLayouts,
   parseDashboardWidgets,
   parseStringCatalog,
   parseWorkflowConfig,
+  type DashboardLayouts,
+  type DashboardWidgetConfig,
+  type DashboardWidgetSize,
 } from "@/lib/permissions/workspace-config";
 import { writeAuditLog } from "@/lib/audit-log";
 
@@ -120,6 +125,34 @@ export async function listCompaniesForAdmin(): Promise<CompanySummary[]> {
  * lib/email.ts's shouldSendReal()). Doesn't redirect: the caller needs to
  * see that link.
  */
+async function provisionCompanyWorkspace(companyId: string): Promise<{ error: string } | { adminRoleId: string }> {
+  const roleResult = await createSystemAdminRole(companyId);
+  if ("error" in roleResult) {
+    return { error: roleResult.error };
+  }
+  const defaultRoles = await seedDefaultCompanyRoles(companyId);
+  if (defaultRoles.error) {
+    return { error: defaultRoles.error };
+  }
+  const statusSeedResult = await seedDefaultAssetStatuses(companyId);
+  if (statusSeedResult.error) {
+    return { error: statusSeedResult.error };
+  }
+  const conditionSeedResult = await seedDefaultAssetConditions(companyId);
+  if (conditionSeedResult.error) {
+    return { error: conditionSeedResult.error };
+  }
+  const catalogSeedResult = await seedCompanyPlatformCatalogs(companyId);
+  if (catalogSeedResult.error) {
+    return { error: catalogSeedResult.error };
+  }
+  return { adminRoleId: roleResult.id };
+}
+
+/**
+ * Super-admin only. Creates the company, optional plan/subscription/payment,
+ * then emails a setup invite. Does not set the customer's password.
+ */
 export async function createCompanyAction(
   _prevState: CreateCompanyState,
   formData: FormData,
@@ -133,6 +166,18 @@ export async function createCompanyAction(
     slug: formData.get("slug"),
     isDedicatedInfra: formData.get("isDedicatedInfra") === "on",
     adminEmail: formData.get("adminEmail"),
+    adminName: formData.get("adminName") || undefined,
+    subscriptionType: formData.get("subscriptionType") || undefined,
+    billingCycle: formData.get("billingCycle") || undefined,
+    startsAt: formData.get("startsAt") || undefined,
+    endsAt: formData.get("endsAt") || undefined,
+    subscriptionStatus: formData.get("subscriptionStatus") || undefined,
+    paymentMethod: formData.get("paymentMethod") || undefined,
+    paymentAmount: formData.get("paymentAmount") || undefined,
+    paymentStatus: formData.get("paymentStatus") || undefined,
+    paymentReference: formData.get("paymentReference") || undefined,
+    paymentDate: formData.get("paymentDate") || undefined,
+    paymentNotes: formData.get("paymentNotes") || undefined,
   });
 
   if (!parsed.success) {
@@ -151,8 +196,26 @@ export async function createCompanyAction(
     return { error: companyResult.error };
   }
 
+  const provisioned = await provisionCompanyWorkspace(companyResult.id);
+  if ("error" in provisioned) {
+    return { error: provisioned.error };
+  }
+
+  const subscriptionType = parsed.data.subscriptionType ?? "sales_assisted";
+  const skipPayment =
+    subscriptionType === "demo" || subscriptionType === "complimentary" || subscriptionType === "trial";
+  const defaultStatus =
+    parsed.data.subscriptionStatus ??
+    (skipPayment || parsed.data.paymentStatus === "paid" ? "active" : plan && plan.priceMonthly > 0 ? "pending_payment" : "active");
+
   if (plan) {
-    const subResult = await upsertCompanySubscription(companyResult.id, plan.id);
+    const subResult = await upsertCompanySubscription(companyResult.id, plan.id, {
+      status: defaultStatus,
+      subscriptionType,
+      billingCycle: parsed.data.billingCycle ?? "monthly",
+      startsAt: parsed.data.startsAt || undefined,
+      endsAt: parsed.data.endsAt || null,
+    });
     if ("error" in subResult) {
       return { error: subResult.error };
     }
@@ -160,27 +223,38 @@ export async function createCompanyAction(
     if ("error" in limits) {
       return { error: limits.error };
     }
+
+    if (!skipPayment && parsed.data.paymentMethod && (parsed.data.paymentAmount ?? 0) > 0 && parsed.data.paymentStatus) {
+      const subscription = await getSubscriptionForCompany(companyResult.id);
+      const supabase = createClient();
+      const {
+        data: { user: actor },
+      } = await supabase.auth.getUser();
+      const payment = await insertBillingPayment({
+        companyId: companyResult.id,
+        subscriptionId: subscription?.id ?? null,
+        amount: parsed.data.paymentAmount ?? 0,
+        currency: plan.currency,
+        paymentMethod: parsed.data.paymentMethod,
+        paymentStatus: parsed.data.paymentStatus,
+        referenceNumber: parsed.data.paymentReference ?? null,
+        paymentDate: parsed.data.paymentDate || new Date().toISOString().slice(0, 10),
+        notes: parsed.data.paymentNotes ?? null,
+        createdBy: actor?.id ?? null,
+      });
+      if ("error" in payment) {
+        return { error: payment.error };
+      }
+    }
   }
 
-  const roleResult = await createSystemAdminRole(companyResult.id);
-  if ("error" in roleResult) {
-    return { error: roleResult.error };
-  }
-
-  const statusSeedResult = await seedDefaultAssetStatuses(companyResult.id);
-  if (statusSeedResult.error) {
-    return { error: statusSeedResult.error };
-  }
-
-  const conditionSeedResult = await seedDefaultAssetConditions(companyResult.id);
-  if (conditionSeedResult.error) {
-    return { error: conditionSeedResult.error };
-  }
-
-  const catalogSeedResult = await seedCompanyPlatformCatalogs(companyResult.id);
-  if (catalogSeedResult.error) {
-    return { error: catalogSeedResult.error };
-  }
+  await writeAuditLog({
+    action: "company.created",
+    entityType: "company",
+    entityId: companyResult.id,
+    companyId: companyResult.id,
+    newValues: { slug: parsed.data.slug, planId, subscriptionType, status: defaultStatus },
+  });
 
   const supabase = createClient();
   const {
@@ -189,7 +263,7 @@ export async function createCompanyAction(
 
   const inviteResult = await createCompanyInvite(
     companyResult.id,
-    roleResult.id,
+    provisioned.adminRoleId,
     parsed.data.adminEmail,
     currentSuperAdmin?.id ?? null,
   );
@@ -204,6 +278,14 @@ export async function createCompanyAction(
     to: parsed.data.adminEmail,
     companyName: parsed.data.name,
     inviteUrl,
+  });
+
+  await writeAuditLog({
+    action: "user.invited",
+    entityType: "company_invite",
+    entityId: inviteResult.token ? undefined : null,
+    companyId: companyResult.id,
+    newValues: { email: parsed.data.adminEmail },
   });
 
   revalidatePath("/admin");
@@ -344,10 +426,47 @@ export async function getWorkspaceSettingsForAdmin(): Promise<CompanyWorkspaceSe
     planModules: parsePlanModules(plan?.includedModules ?? null),
     assetFieldConfig: parseAssetFieldConfig(settings.assetFieldConfig),
     dashboardWidgets: parseDashboardWidgets(settings.dashboardWidgets),
+    dashboardLayouts: parseDashboardLayouts(settings.dashboardLayouts),
     workflowConfig: parseWorkflowConfig(settings.workflowConfig),
     departments: parseStringCatalog(settings.departmentCatalog),
     disposalMethods: parseStringCatalog(settings.disposalMethods),
   };
+}
+
+function parseWidgetSize(value: FormDataEntryValue | null, fallback: DashboardWidgetSize): DashboardWidgetSize {
+  return DASHBOARD_WIDGET_SIZES.includes(value as DashboardWidgetSize)
+    ? (value as DashboardWidgetSize)
+    : fallback;
+}
+
+function widgetsFromForm(formData: FormData, prefix: string, defaults: DashboardWidgetConfig): DashboardWidgetConfig {
+  const widgets = parseDashboardWidgets(defaults);
+  for (const key of DASHBOARD_WIDGET_KEYS) {
+    widgets[key] = {
+      enabled: formData.get(`${prefix}${key}`) === "on",
+      order: Number(formData.get(`${prefix}order_${key}`) ?? widgets[key].order) || widgets[key].order,
+      size: parseWidgetSize(formData.get(`${prefix}size_${key}`), widgets[key].size),
+    };
+  }
+  return widgets;
+}
+
+const ROLE_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function layoutsFromForm(formData: FormData): DashboardLayouts {
+  const roleIds = String(formData.get("layoutRoleIds") ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => ROLE_ID_RE.test(id));
+  const roles: DashboardLayouts["roles"] = {};
+  for (const roleId of roleIds) {
+    if (formData.get(`role_layout_on_${roleId}`) !== "on") {
+      continue;
+    }
+    roles[roleId] = widgetsFromForm(formData, `role_${roleId}_widget_`, parseDashboardWidgets(null));
+  }
+  return { roles };
 }
 
 export async function updateWorkspaceSettingsAction(
@@ -395,13 +514,11 @@ export async function updateWorkspaceSettingsAction(
     };
   }
 
-  const widgets = parseDashboardWidgets(null);
-  for (const key of DASHBOARD_WIDGET_KEYS) {
-    widgets[key] = {
-      enabled: formData.get(`widget_${key}`) === "on",
-      order: Number(formData.get(`widget_order_${key}`) ?? widgets[key].order) || widgets[key].order,
-    };
-  }
+  const resetDashboard = formData.get("resetDashboard") === "1";
+  const widgets = resetDashboard
+    ? parseDashboardWidgets(null)
+    : widgetsFromForm(formData, "widget_", parseDashboardWidgets(null));
+  const layouts = resetDashboard ? parseDashboardLayouts(null) : layoutsFromForm(formData);
 
   const workflows = parseWorkflowConfig(null);
   for (const key of WORKFLOW_KEYS) {
@@ -413,6 +530,7 @@ export async function updateWorkspaceSettingsAction(
     enabledModules,
     assetFieldConfig: fieldConfig,
     dashboardWidgets: widgets,
+    dashboardLayouts: layouts,
     workflowConfig: workflows,
     departmentCatalog: parseCatalogText(String(formData.get("departments") ?? "")),
     disposalMethods: parseCatalogText(String(formData.get("disposalMethods") ?? "")),
@@ -428,6 +546,7 @@ export async function updateWorkspaceSettingsAction(
     newValues: { assetCodeFormat: parsed.data.assetCodeFormat, enabledModules },
   });
   revalidatePath("/dashboard/administration/settings");
+  revalidatePath("/dashboard");
   revalidatePath("/", "layout");
   return { error: null, success: true };
 }

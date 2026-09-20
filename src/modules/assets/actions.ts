@@ -17,6 +17,7 @@ import {
   getAssetAttachments,
   getAssetById,
   getAssetCountsByCategory,
+  getAssetCountsByLocation,
   getAssetCountsByStatus,
   getAssetDocumentById,
   getAssetFilterOptions,
@@ -63,6 +64,7 @@ import type {
   AssetLocationMove,
   CategoryAssetCount,
   DeleteAssetState,
+  LocationAssetCount,
   PublicAsset,
   PublicAssetReportState,
   StatusAssetCount,
@@ -103,6 +105,14 @@ export async function getAssetCountsByStatusForDashboard(): Promise<StatusAssetC
     return [];
   }
   return getAssetCountsByStatus();
+}
+
+/** For the dashboard's "assets by location" chart. */
+export async function getAssetCountsByLocationForDashboard(): Promise<LocationAssetCount[]> {
+  if (!(await requirePermission("assets", "view"))) {
+    return [];
+  }
+  return getAssetCountsByLocation();
 }
 
 /** For /assets — parses raw (untrusted) URL search params before querying. */

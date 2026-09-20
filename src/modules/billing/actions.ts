@@ -1,9 +1,10 @@
 "use server";
 
 import "server-only";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { TENANT_HEADERS } from "@/lib/tenant";
+import { TENANT_HEADERS, TENANT_SLUG_COOKIE } from "@/lib/tenant";
+import { writeAuditLog } from "@/lib/audit-log";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { requirePermission } from "@/lib/permissions/has-permission";
@@ -11,16 +12,16 @@ import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissio
 import { createClient } from "@/lib/supabase/server";
 import {
   createCompany,
-  deleteAuthUsersByIds,
   deleteCompany,
   seedCompanyPlatformCatalogs,
   updateCompanyLogoAdmin,
 } from "@/modules/companies/mutations";
-import { getCompanyById, getCompanyByIdAdmin, getCompanyBySlug } from "@/modules/companies/queries";
-import { createSystemAdminRole } from "@/modules/roles/mutations";
+import { getCompanyById, getCompanyBySlug } from "@/modules/companies/queries";
+import { createSystemAdminRole, seedDefaultCompanyRoles } from "@/modules/roles/mutations";
 import { seedDefaultAssetStatuses } from "@/modules/statuses/mutations";
 import { seedDefaultAssetConditions } from "@/modules/conditions/mutations";
-import { createCompanyAdminAccount } from "@/modules/users/mutations";
+import { attachUserToCompany } from "@/modules/users/mutations";
+import { getUserWithRole } from "@/modules/users/queries";
 import { uploadFileToR2 } from "@/modules/storage/mutations";
 import { parsePlanModules } from "@/lib/permissions/feature-catalog";
 import {
@@ -29,7 +30,9 @@ import {
   grantExtraAssetsSchema,
   planFormSchema,
   razorpayPaymentResultSchema,
-  signupSchema,
+  createWorkspaceSchema,
+  recordPaymentSchema,
+  subscriptionStatusSchema,
 } from "./validation";
 import {
   countAssetsForCompany,
@@ -41,16 +44,21 @@ import {
   listBillingOrders,
   listBillingOrdersForCompany,
   listCompanyBillingSnapshots,
+  listPaymentsForCompany,
+  listRecentPayments,
 } from "./queries";
 import {
   cancelBillingOrder,
   deletePlan,
   fulfillBillingOrder,
   incrementExtraAssets,
+  insertBillingPayment,
   insertExtraAssetOrder,
   applyPlanLimitsToCompany,
   insertPlan,
   markBillingOrderPaid,
+  setSubscriptionPeriod,
+  setSubscriptionStatus,
   updatePlan,
   upsertCompanySubscription,
 } from "./mutations";
@@ -65,14 +73,19 @@ import {
 import type {
   AssignPlanState,
   BillingOrder,
+  BillingPayment,
   BillingPlan,
   CompanyAssetQuota,
   CompanyBillingSnapshot,
   ConfirmPaymentState,
+  CreateWorkspaceState,
   ExtraAssetOrderState,
   OrderActionState,
   PlanFormState,
+  RecordPaymentState,
   SignupState,
+  SubscriptionActionState,
+  SubscriptionStatus,
 } from "./types";
 
 function quotaFrom(
@@ -82,8 +95,9 @@ function quotaFrom(
   subscriptionStatus: CompanyAssetQuota["subscriptionStatus"],
 ): CompanyAssetQuota {
   const effectiveLimit = plan ? plan.assetLimit + extraAssets : null;
-  const unpaid = subscriptionStatus !== "none" && subscriptionStatus !== "active";
-  const remaining = unpaid ? 0 : effectiveLimit === null ? null : Math.max(0, effectiveLimit - assetCount);
+  const entitled =
+    subscriptionStatus === "none" || subscriptionStatus === "active" || subscriptionStatus === "trial";
+  const remaining = entitled ? (effectiveLimit === null ? null : Math.max(0, effectiveLimit - assetCount)) : 0;
 
   return {
     plan,
@@ -91,7 +105,7 @@ function quotaFrom(
     assetCount,
     effectiveLimit,
     remaining,
-    atLimit: unpaid || (remaining !== null && remaining <= 0),
+    atLimit: !entitled || (remaining !== null && remaining <= 0),
     subscriptionStatus,
   };
 }
@@ -119,6 +133,7 @@ function readPlanForm(formData: FormData) {
     sortOrder: formData.get("sortOrder") ?? 0,
     includedModules,
     storageLimitBytes: Number.isFinite(storageLimitBytes) ? storageLimitBytes : null,
+    userLimit: formData.get("userLimit"),
   };
 }
 
@@ -354,6 +369,14 @@ export async function assignPlanToCompanyAction(
     return { error: limits.error };
   }
 
+  await writeAuditLog({
+    action: "plan.changed",
+    entityType: "company_subscription",
+    entityId: companyId,
+    companyId,
+    newValues: { planId: plan.id },
+  });
+
   revalidatePath("/admin");
   revalidatePath("/admin/orders");
   revalidatePath("/dashboard/administration/settings");
@@ -497,30 +520,40 @@ export async function requestExtraAssetsAction(
 }
 
 /**
- * Public self-serve: pick a plan, create the company (slug + optional
- * logo), and create the first admin account. Payment for the monthly
- * plan is collected offline / via TagX — the workspace is created so
- * they can start, with the asset cap already enforced.
+ * Authenticated self-serve: the account already exists. Creates the
+ * workspace, attaches this user as Company Admin, and starts payment if
+ * the plan is paid. Does not create fake ₹0 payment rows for free plans.
  */
-export async function signupCompanyAction(
-  _prevState: SignupState,
+export async function createWorkspaceForCurrentUserAction(
+  _prevState: CreateWorkspaceState,
   formData: FormData,
-): Promise<SignupState> {
+): Promise<CreateWorkspaceState> {
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`signup:${ip}`, 5, 60 * 60 * 1000)) {
-    return { error: "Too many signup attempts. Try again later." };
+  if (!consumeRateLimit(`onboarding:${ip}`, 5, 60 * 60 * 1000)) {
+    return { error: "Too many attempts. Try again later." };
   }
 
-  const parsed = signupSchema.safeParse({
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) {
+    return { error: "Sign in to create a workspace." };
+  }
+  if (!user.email_confirmed_at) {
+    return { error: "Verify your email before creating a workspace." };
+  }
+
+  const profile = await getUserWithRole(user.id);
+  if (profile?.companyId) {
+    return { error: "You already have a workspace.", redirectPath: "/dashboard" };
+  }
+
+  const parsed = createWorkspaceSchema.safeParse({
     planId: formData.get("planId"),
     name: formData.get("name"),
     slug: formData.get("slug"),
-    adminEmail: formData.get("adminEmail"),
-    fullName: formData.get("fullName") ?? "",
-    password: formData.get("password"),
-    confirmPassword: formData.get("confirmPassword"),
   });
-
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
@@ -532,7 +565,7 @@ export async function signupCompanyAction(
 
   const existing = await getCompanyBySlug(parsed.data.slug);
   if (existing) {
-    return { error: "This workspace URL is already taken. Choose a different slug." };
+    return { error: "This workspace URL is already in use. Please choose another." };
   }
 
   const companyResult = await createCompany({
@@ -545,11 +578,7 @@ export async function signupCompanyAction(
   }
 
   const companyId = companyResult.id;
-
-  const rollback = async (userId?: string) => {
-    if (userId) {
-      await deleteAuthUsersByIds([userId]);
-    }
+  const rollback = async () => {
     await deleteCompany(companyId);
   };
 
@@ -558,30 +587,43 @@ export async function signupCompanyAction(
     await rollback();
     return { error: roleResult.error };
   }
-
+  const defaultRoles = await seedDefaultCompanyRoles(companyId);
+  if (defaultRoles.error) {
+    await rollback();
+    return { error: defaultRoles.error };
+  }
   const statusSeedResult = await seedDefaultAssetStatuses(companyId);
   if (statusSeedResult.error) {
     await rollback();
     return { error: statusSeedResult.error };
   }
-
   const conditionSeedResult = await seedDefaultAssetConditions(companyId);
   if (conditionSeedResult.error) {
     await rollback();
     return { error: conditionSeedResult.error };
   }
-
   const catalogSeedResult = await seedCompanyPlatformCatalogs(companyId);
   if (catalogSeedResult.error) {
     await rollback();
     return { error: catalogSeedResult.error };
   }
 
-  const subResult = await upsertCompanySubscription(
+  const attached = await attachUserToCompany({
+    userId: user.id,
     companyId,
-    plan.id,
-    plan.priceMonthly > 0 ? "pending_payment" : "active",
-  );
+    roleId: roleResult.id,
+    isCompanyAdmin: true,
+  });
+  if (attached.error) {
+    await rollback();
+    return { error: attached.error };
+  }
+
+  const paidPlan = plan.priceMonthly > 0;
+  const subResult = await upsertCompanySubscription(companyId, plan.id, {
+    status: paidPlan ? "pending_payment" : "active",
+    subscriptionType: "self_service",
+  });
   if ("error" in subResult) {
     await rollback();
     return { error: subResult.error };
@@ -593,18 +635,6 @@ export async function signupCompanyAction(
     return { error: limits.error };
   }
 
-  const accountResult = await createCompanyAdminAccount({
-    companyId,
-    roleId: roleResult.id,
-    email: parsed.data.adminEmail,
-    password: parsed.data.password,
-    fullName: parsed.data.fullName,
-  });
-  if ("error" in accountResult) {
-    await rollback();
-    return { error: accountResult.error };
-  }
-
   const logoFile = formData.get("logo");
   if (logoFile instanceof File && logoFile.size > 0) {
     const uploadResult = await uploadFileToR2({ companyId, folder: "branding", file: logoFile });
@@ -613,27 +643,44 @@ export async function signupCompanyAction(
     }
   }
 
+  await writeAuditLog({
+    action: "company.created",
+    entityType: "company",
+    entityId: companyId,
+    companyId,
+    newValues: { slug: parsed.data.slug, planId: plan.id, type: "self_service" },
+  });
+
+  cookies().set(TENANT_SLUG_COOKIE, parsed.data.slug, {
+    path: "/",
+    sameSite: "lax",
+    httpOnly: true,
+    maxAge: 60 * 60 * 24 * 400,
+  });
+  cookies().delete("tagx-signup-plan");
+
   revalidatePath("/admin");
   revalidatePath("/");
+  revalidatePath("/dashboard");
 
-  if (plan.priceMonthly <= 0) {
-    return { error: null, redirectPath: `/${parsed.data.slug}/login` };
+  if (!paidPlan) {
+    return { error: null, redirectPath: "/dashboard" };
   }
 
   const checkout = await createSubscriptionCheckout({
     companyId,
     plan,
-    email: parsed.data.adminEmail,
-    customerName: parsed.data.fullName ?? parsed.data.name,
+    email: user.email,
+    customerName: profile?.fullName ?? parsed.data.name,
   });
   if ("error" in checkout) {
     return {
-      error: `${checkout.error} Your workspace was created — sign in and finish payment from Settings.`,
-      redirectPath: `/${parsed.data.slug}/login`,
+      error: "Your payment could not be completed. Your workspace has been saved. You can retry payment or contact support.",
+      redirectPath: "/dashboard",
     };
   }
 
-  return { error: null, checkout: checkout.checkout, redirectPath: `/${parsed.data.slug}/login` };
+  return { error: null, checkout: checkout.checkout, redirectPath: "/dashboard" };
 }
 
 export async function confirmSignupPaymentAction(
@@ -661,15 +708,40 @@ export async function confirmSignupPaymentAction(
     return { error: result.error };
   }
 
-  const company = await getCompanyByIdAdmin(result.companyId);
+  const subscription = await getSubscriptionForCompany(result.companyId);
+  const plan = subscription ? await getPlanById(subscription.planId) : null;
+  if (plan && parsed.data.razorpayPaymentId) {
+    await insertBillingPayment({
+      companyId: result.companyId,
+      subscriptionId: subscription?.id ?? null,
+      amount: plan.priceMonthly,
+      currency: plan.currency,
+      paymentMethod: "razorpay",
+      paymentStatus: "paid",
+      referenceNumber: parsed.data.razorpayPaymentId,
+      paymentDate: new Date().toISOString().slice(0, 10),
+      provider: "razorpay",
+      createdBy: (await createClient().auth.getUser()).data.user?.id ?? null,
+    });
+  }
+
+  await writeAuditLog({
+    action: "subscription.activated",
+    entityType: "company_subscription",
+    entityId: subscription?.id ?? result.companyId,
+    companyId: result.companyId,
+    newValues: { provider: "razorpay", paymentId: parsed.data.razorpayPaymentId },
+  });
+
   revalidatePath("/admin");
   revalidatePath("/dashboard/administration/settings");
   revalidatePath("/assets");
+  revalidatePath("/dashboard");
 
   return {
     error: null,
     success: true,
-    redirectPath: company?.slug ? `/${company.slug}/login` : "/",
+    redirectPath: "/dashboard",
   };
 }
 
@@ -758,6 +830,172 @@ export async function startPlanPaymentAction(): Promise<SignupState> {
   }
 
   return { error: null, checkout: checkout.checkout };
+}
+
+export async function getPaymentsForCurrentCompany(): Promise<BillingPayment[]> {
+  if (!(await requirePermission("settings", "view"))) {
+    return [];
+  }
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  if (!companyId) {
+    return [];
+  }
+  return listPaymentsForCompany(companyId);
+}
+
+export async function getRecentPaymentsForAdmin(): Promise<BillingPayment[]> {
+  if (!(await isCurrentUserSuperAdmin())) {
+    return [];
+  }
+  return listRecentPayments();
+}
+
+export async function recordPaymentAction(
+  companyId: string,
+  _prevState: RecordPaymentState,
+  formData: FormData,
+): Promise<RecordPaymentState> {
+  if (!(await isCurrentUserSuperAdmin())) {
+    return { error: "Not authorized." };
+  }
+
+  const parsed = recordPaymentSchema.safeParse({
+    amount: formData.get("amount"),
+    currency: formData.get("currency") || "INR",
+    paymentMethod: formData.get("paymentMethod"),
+    paymentStatus: formData.get("paymentStatus"),
+    referenceNumber: formData.get("referenceNumber") || null,
+    paymentDate: formData.get("paymentDate"),
+    notes: formData.get("paymentNotes") || null,
+    activate: formData.get("activate") === "on",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid payment details." };
+  }
+
+  const subscription = await getSubscriptionForCompany(companyId);
+  const supabase = createClient();
+  const {
+    data: { user: actor },
+  } = await supabase.auth.getUser();
+
+  const payment = await insertBillingPayment({
+    companyId,
+    subscriptionId: subscription?.id ?? null,
+    amount: parsed.data.amount,
+    currency: parsed.data.currency,
+    paymentMethod: parsed.data.paymentMethod,
+    paymentStatus: parsed.data.paymentStatus,
+    referenceNumber: parsed.data.referenceNumber ?? null,
+    paymentDate: parsed.data.paymentDate,
+    notes: parsed.data.notes ?? null,
+    createdBy: actor?.id ?? null,
+  });
+  if ("error" in payment) {
+    return { error: payment.error };
+  }
+
+  if (parsed.data.activate && parsed.data.paymentStatus === "paid") {
+    const activated = await setSubscriptionStatus(companyId, "active");
+    if ("error" in activated) {
+      return { error: activated.error };
+    }
+    await writeAuditLog({
+      action: "subscription.activated",
+      entityType: "company_subscription",
+      entityId: subscription?.id ?? companyId,
+      companyId,
+      newValues: { source: "manual_payment", paymentId: payment.id },
+    });
+  }
+
+  await writeAuditLog({
+    action: "payment.recorded",
+    entityType: "billing_payment",
+    entityId: payment.id,
+    companyId,
+    newValues: {
+      amount: parsed.data.amount,
+      method: parsed.data.paymentMethod,
+      status: parsed.data.paymentStatus,
+    },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/payments");
+  revalidatePath("/dashboard/administration/settings");
+  return { error: null, success: true };
+}
+
+export async function updateSubscriptionStatusAction(
+  companyId: string,
+  status: SubscriptionStatus,
+): Promise<SubscriptionActionState> {
+  if (!(await isCurrentUserSuperAdmin())) {
+    return { error: "Not authorized." };
+  }
+
+  const parsed = subscriptionStatusSchema.safeParse({ status });
+  if (!parsed.success) {
+    return { error: "Invalid subscription status." };
+  }
+
+  const result = await setSubscriptionStatus(companyId, parsed.data.status);
+  if ("error" in result) {
+    return { error: result.error };
+  }
+
+  const action =
+    parsed.data.status === "active"
+      ? "subscription.activated"
+      : parsed.data.status === "suspended"
+        ? "subscription.suspended"
+        : parsed.data.status === "canceled"
+          ? "subscription.cancelled"
+          : "subscription.updated";
+
+  await writeAuditLog({
+    action,
+    entityType: "company_subscription",
+    entityId: companyId,
+    companyId,
+    newValues: { status: parsed.data.status },
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/dashboard/administration/settings");
+  return { error: null, success: true };
+}
+
+export async function extendSubscriptionAction(
+  companyId: string,
+  _prevState: SubscriptionActionState,
+  formData: FormData,
+): Promise<SubscriptionActionState> {
+  if (!(await isCurrentUserSuperAdmin())) {
+    return { error: "Not authorized." };
+  }
+
+  const endsAt = String(formData.get("endsAt") ?? "").trim();
+  if (!endsAt) {
+    return { error: "Choose an end date." };
+  }
+
+  const result = await setSubscriptionPeriod(companyId, { endsAt: new Date(endsAt).toISOString() });
+  if ("error" in result) {
+    return { error: result.error };
+  }
+
+  await writeAuditLog({
+    action: "subscription.extended",
+    entityType: "company_subscription",
+    entityId: companyId,
+    companyId,
+    newValues: { endsAt },
+  });
+
+  revalidatePath("/admin");
+  return { error: null, success: true };
 }
 
 export async function handleRazorpayWebhookAction(

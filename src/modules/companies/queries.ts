@@ -208,6 +208,7 @@ interface WorkspaceSettingsRow {
   enabled_modules: unknown;
   asset_field_config: unknown;
   dashboard_widgets: unknown;
+  dashboard_layouts: unknown;
   workflow_config: unknown;
   department_catalog: unknown;
   disposal_methods: unknown;
@@ -218,24 +219,46 @@ export async function getCompanyWorkspaceSettings(companyId: string): Promise<{
   enabledModules: unknown;
   assetFieldConfig: unknown;
   dashboardWidgets: unknown;
+  dashboardLayouts: unknown;
   workflowConfig: unknown;
   departmentCatalog: unknown;
   disposalMethods: unknown;
 }> {
   const supabase = createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("company_settings")
     .select(
-      "asset_code_format, enabled_modules, asset_field_config, dashboard_widgets, workflow_config, department_catalog, disposal_methods",
+      "asset_code_format, enabled_modules, asset_field_config, dashboard_widgets, dashboard_layouts, workflow_config, department_catalog, disposal_methods",
     )
     .eq("company_id", companyId)
     .maybeSingle<WorkspaceSettingsRow>();
+
+  if (error) {
+    const fallback = await supabase
+      .from("company_settings")
+      .select(
+        "asset_code_format, enabled_modules, asset_field_config, dashboard_widgets, workflow_config, department_catalog, disposal_methods",
+      )
+      .eq("company_id", companyId)
+      .maybeSingle<Omit<WorkspaceSettingsRow, "dashboard_layouts">>();
+    return {
+      assetCodeFormat: fallback.data?.asset_code_format ?? "AST-{SEQ:05d}",
+      enabledModules: fallback.data?.enabled_modules ?? null,
+      assetFieldConfig: fallback.data?.asset_field_config ?? null,
+      dashboardWidgets: fallback.data?.dashboard_widgets ?? null,
+      dashboardLayouts: null,
+      workflowConfig: fallback.data?.workflow_config ?? null,
+      departmentCatalog: fallback.data?.department_catalog ?? null,
+      disposalMethods: fallback.data?.disposal_methods ?? null,
+    };
+  }
 
   return {
     assetCodeFormat: data?.asset_code_format ?? "AST-{SEQ:05d}",
     enabledModules: data?.enabled_modules ?? null,
     assetFieldConfig: data?.asset_field_config ?? null,
     dashboardWidgets: data?.dashboard_widgets ?? null,
+    dashboardLayouts: data?.dashboard_layouts ?? null,
     workflowConfig: data?.workflow_config ?? null,
     departmentCatalog: data?.department_catalog ?? null,
     disposalMethods: data?.disposal_methods ?? null,

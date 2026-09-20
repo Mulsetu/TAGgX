@@ -7,7 +7,7 @@ import {
   parseEnabledModules,
   parsePlanModules,
 } from "@/lib/permissions/feature-catalog";
-import type { BillingPlan } from "./types";
+import type { BillingCycle, BillingPlan, PaymentMethod, PaymentStatus, SubscriptionStatus, SubscriptionType } from "./types";
 
 export type PlanMutationResult = { id: string } | { error: string };
 export type MutationResult = { success: true } | { error: string };
@@ -23,6 +23,7 @@ export interface UpsertPlanInput {
   sortOrder: number;
   includedModules: string[] | null;
   storageLimitBytes: number | null;
+  userLimit: number | null;
 }
 
 export async function insertPlan(input: UpsertPlanInput): Promise<PlanMutationResult> {
@@ -41,6 +42,7 @@ export async function insertPlan(input: UpsertPlanInput): Promise<PlanMutationRe
       sort_order: input.sortOrder,
       included_modules: input.includedModules,
       storage_limit_bytes: input.storageLimitBytes,
+      user_limit: input.userLimit,
     })
     .select("id")
     .single<{ id: string }>();
@@ -68,6 +70,7 @@ export async function updatePlan(planId: string, input: UpsertPlanInput): Promis
       sort_order: input.sortOrder,
       included_modules: input.includedModules,
       storage_limit_bytes: input.storageLimitBytes,
+      user_limit: input.userLimit,
     })
     .eq("id", planId);
 
@@ -96,7 +99,13 @@ export async function deletePlan(planId: string): Promise<MutationResult> {
 export async function upsertCompanySubscription(
   companyId: string,
   planId: string,
-  status: "pending_payment" | "active" = "active",
+  options: {
+    status?: SubscriptionStatus;
+    subscriptionType?: SubscriptionType;
+    billingCycle?: BillingCycle;
+    startsAt?: string | null;
+    endsAt?: string | null;
+  } = {},
 ): Promise<MutationResult> {
   const supabase = createAdminClient();
 
@@ -104,7 +113,11 @@ export async function upsertCompanySubscription(
     {
       company_id: companyId,
       plan_id: planId,
-      status,
+      status: options.status ?? "active",
+      subscription_type: options.subscriptionType ?? "self_service",
+      billing_cycle: options.billingCycle ?? "monthly",
+      ...(options.startsAt ? { starts_at: options.startsAt } : {}),
+      ...(options.endsAt !== undefined ? { ends_at: options.endsAt } : {}),
     },
     { onConflict: "company_id" },
   );
@@ -186,7 +199,7 @@ export async function attachRazorpaySubscription(input: {
 
 export async function setSubscriptionStatus(
   companyId: string,
-  status: "pending_payment" | "active" | "past_due" | "halted" | "canceled",
+  status: SubscriptionStatus,
 ): Promise<MutationResult> {
   const supabase = createAdminClient();
 
@@ -200,6 +213,65 @@ export async function setSubscriptionStatus(
   }
 
   return { success: true };
+}
+
+export async function setSubscriptionPeriod(
+  companyId: string,
+  input: { startsAt?: string; endsAt?: string | null; autoRenew?: boolean },
+): Promise<MutationResult> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("company_subscriptions")
+    .update({
+      ...(input.startsAt ? { starts_at: input.startsAt } : {}),
+      ...(input.endsAt !== undefined ? { ends_at: input.endsAt } : {}),
+      ...(input.autoRenew !== undefined ? { auto_renew: input.autoRenew } : {}),
+    })
+    .eq("company_id", companyId);
+  if (error) {
+    return { error: "Could not update the subscription period." };
+  }
+  return { success: true };
+}
+
+export async function insertBillingPayment(input: {
+  companyId: string;
+  subscriptionId: string | null;
+  amount: number;
+  currency: string;
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  referenceNumber?: string | null;
+  paymentDate: string;
+  provider?: string | null;
+  notes?: string | null;
+  createdBy: string | null;
+}): Promise<{ id: string } | { error: string }> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("billing_payments")
+    .insert({
+      company_id: input.companyId,
+      subscription_id: input.subscriptionId,
+      amount: input.amount,
+      currency: input.currency,
+      payment_method: input.paymentMethod,
+      payment_status: input.paymentStatus,
+      reference_number: input.referenceNumber ?? null,
+      payment_date: input.paymentDate,
+      provider: input.provider ?? null,
+      notes: input.notes ?? null,
+      created_by: input.createdBy,
+    })
+    .select("id")
+    .single<{ id: string }>();
+  if (error || !data) {
+    if (error?.code === "23505") {
+      return { id: "duplicate" };
+    }
+    return { error: "Could not record the payment." };
+  }
+  return { id: data.id };
 }
 
 export async function attachRazorpayOrder(

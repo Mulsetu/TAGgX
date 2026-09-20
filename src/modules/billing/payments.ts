@@ -16,6 +16,8 @@ import type { BillingPlan, RazorpayCheckoutSession, SubscriptionStatus } from ".
 import {
   getBillingOrderById,
   getBillingOrderByRazorpayOrderId,
+  getPaymentByReference,
+  getPlanById,
   getSubscriptionByConfirmToken,
   getSubscriptionByRazorpayId,
   getSubscriptionForCompany,
@@ -24,6 +26,7 @@ import {
   attachRazorpayOrder,
   attachRazorpaySubscription,
   claimRazorpayWebhookEvent,
+  insertBillingPayment,
   markBillingOrderPaid,
   setPlanRazorpayId,
   setSubscriptionStatus,
@@ -355,6 +358,23 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
     }
   }
 
+  if (event === "payment.failed" && paymentId) {
+    const failedSubId = subscriptionId ?? asString(payment?.subscription_id);
+    const companySub = failedSubId ? await getSubscriptionByRazorpayId(failedSubId) : null;
+    if (companySub) {
+      await recordVerifiedRazorpayPayment({
+        companyId: companySub.companyId,
+        subscriptionId: companySub.id,
+        paymentId,
+        amountPaise: typeof payment?.amount === "number" ? payment.amount : null,
+        status: "failed",
+      });
+      if (companySub.status === "active" || companySub.status === "pending_payment" || companySub.status === "trial") {
+        await setSubscriptionStatus(companySub.companyId, "past_due");
+      }
+    }
+  }
+
   if (subscriptionId) {
     const companySub = await getSubscriptionByRazorpayId(subscriptionId);
     if (companySub) {
@@ -362,10 +382,51 @@ export async function processRazorpayWebhook(rawBody: string, signature: string 
       if (nextStatus) {
         await setSubscriptionStatus(companySub.companyId, nextStatus);
       }
+      if (
+        paymentId &&
+        (event === "subscription.charged" || event === "payment.captured" || event === "subscription.activated")
+      ) {
+        await recordVerifiedRazorpayPayment({
+          companyId: companySub.companyId,
+          subscriptionId: companySub.id,
+          paymentId,
+          amountPaise: typeof payment?.amount === "number" ? payment.amount : null,
+          status: "paid",
+        });
+      }
     }
   }
 
   return { status: 200 };
+}
+
+async function recordVerifiedRazorpayPayment(input: {
+  companyId: string;
+  subscriptionId: string | null;
+  paymentId: string;
+  amountPaise: number | null;
+  status: "paid" | "failed";
+}): Promise<void> {
+  const existing = await getPaymentByReference("razorpay", input.paymentId);
+  if (existing) {
+    return;
+  }
+  const subscription = await getSubscriptionForCompany(input.companyId);
+  const plan = subscription ? await getPlanById(subscription.planId) : null;
+  const amount =
+    input.amountPaise != null ? Math.round(input.amountPaise / 100) : (plan?.priceMonthly ?? 0);
+  await insertBillingPayment({
+    companyId: input.companyId,
+    subscriptionId: input.subscriptionId,
+    amount,
+    currency: plan?.currency ?? "INR",
+    paymentMethod: "razorpay",
+    paymentStatus: input.status,
+    referenceNumber: input.paymentId,
+    paymentDate: new Date().toISOString().slice(0, 10),
+    provider: "razorpay",
+    createdBy: null,
+  });
 }
 
 function subscriptionStatusFromEvent(event: string, razorpayStatus: string | null): SubscriptionStatus | null {

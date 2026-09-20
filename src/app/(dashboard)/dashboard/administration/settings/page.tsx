@@ -1,7 +1,9 @@
 import { getCurrentCompany, getWorkspaceSettingsForAdmin } from "@/modules/companies/actions";
+import { getRolesForAdministration } from "@/modules/roles/actions";
 import {
   getCurrentCompanyBillingOrders,
   getCurrentCompanyQuota,
+  getPaymentsForCurrentCompany,
 } from "@/modules/billing/actions";
 import { assertPermission, requirePermission } from "@/lib/permissions/has-permission";
 import { BrandingForm } from "./branding-form";
@@ -10,12 +12,14 @@ import { WorkspaceSettingsForm } from "./workspace-form";
 
 export default async function SettingsPage() {
   await assertPermission("settings", "view");
-  const [company, quota, orders, canEdit, workspace] = await Promise.all([
+  const [company, quota, orders, payments, canEdit, workspace, roles] = await Promise.all([
     getCurrentCompany(),
     getCurrentCompanyQuota(),
     getCurrentCompanyBillingOrders(),
+    getPaymentsForCurrentCompany(),
     requirePermission("settings", "edit"),
     getWorkspaceSettingsForAdmin(),
+    getRolesForAdministration(),
   ]);
 
   if (!company) {
@@ -33,8 +37,13 @@ export default async function SettingsPage() {
       </div>
 
       <BrandingForm company={company} />
-      {workspace && canEdit ? <WorkspaceSettingsForm settings={workspace} /> : null}
-      <BillingPanel quota={quota} orders={orders} canEdit={canEdit} />
+      {workspace && canEdit ? (
+        <WorkspaceSettingsForm
+          settings={workspace}
+          roles={roles.filter((role) => !role.isSystem).map((role) => ({ id: role.id, name: role.name }))}
+        />
+      ) : null}
+      <BillingPanel quota={quota} orders={orders} payments={payments} canEdit={canEdit} />
     </div>
   );
 }

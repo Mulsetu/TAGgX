@@ -26,8 +26,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import { assignPlanToCompanyAction, grantExtraAssetsAction } from "@/modules/billing/actions";
-import type { AssignPlanState, BillingPlan, CompanyBillingSnapshot } from "@/modules/billing/types";
+import { assignPlanToCompanyAction, extendSubscriptionAction, grantExtraAssetsAction, recordPaymentAction, updateSubscriptionStatusAction } from "@/modules/billing/actions";
+import type { AssignPlanState, BillingPlan, CompanyBillingSnapshot, RecordPaymentState, SubscriptionActionState } from "@/modules/billing/types";
 import { deleteCompanyAction, setCompanySuspendedAction, updateCompanyAction } from "@/modules/companies/actions";
 import type { CompanySummary, UpdateCompanyState } from "@/modules/companies/types";
 
@@ -51,6 +51,8 @@ export function CompanyDetailDialog({
   const [updateState, setUpdateState] = useState<UpdateCompanyState>(initialUpdateState);
   const [planState, setPlanState] = useState<AssignPlanState>(initialPlanState);
   const [grantState, setGrantState] = useState<AssignPlanState>(initialPlanState);
+  const [paymentState, setPaymentState] = useState<RecordPaymentState>({ error: null });
+  const [subState, setSubState] = useState<SubscriptionActionState>({ error: null });
   const [isDedicatedInfra, setIsDedicatedInfra] = useState(false);
   const [confirmSlug, setConfirmSlug] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -58,6 +60,8 @@ export function CompanyDetailDialog({
   const [isDeleting, startDelete] = useTransition();
   const [isPlanSaving, startPlanSave] = useTransition();
   const [isGranting, startGrant] = useTransition();
+  const [isRecording, startRecord] = useTransition();
+  const [isSubSaving, startSubSave] = useTransition();
   const [isSuspending, startSuspend] = useTransition();
   const [suspendError, setSuspendError] = useState<string | null>(null);
 
@@ -67,6 +71,8 @@ export function CompanyDetailDialog({
       setUpdateState(initialUpdateState);
       setPlanState(initialPlanState);
       setGrantState(initialPlanState);
+      setPaymentState({ error: null });
+      setSubState({ error: null });
       setConfirmSlug("");
       setDeleteError(null);
       setSuspendError(null);
@@ -105,6 +111,36 @@ export function CompanyDetailDialog({
     startGrant(async () => {
       const result = await grantExtraAssetsAction(company!.id, initialPlanState, formData);
       setGrantState(result);
+      if (result.success) {
+        router.refresh();
+      }
+    });
+  }
+
+  function handleRecordPayment(formData: FormData) {
+    startRecord(async () => {
+      const result = await recordPaymentAction(company!.id, { error: null }, formData);
+      setPaymentState(result);
+      if (result.success) {
+        router.refresh();
+      }
+    });
+  }
+
+  function handleSubscriptionStatus(status: "active" | "suspended" | "canceled") {
+    startSubSave(async () => {
+      const result = await updateSubscriptionStatusAction(company!.id, status);
+      setSubState(result);
+      if (result.success) {
+        router.refresh();
+      }
+    });
+  }
+
+  function handleExtend(formData: FormData) {
+    startSubSave(async () => {
+      const result = await extendSubscriptionAction(company!.id, { error: null }, formData);
+      setSubState(result);
       if (result.success) {
         router.refresh();
       }
@@ -257,6 +293,102 @@ export function CompanyDetailDialog({
           {grantState.success ? <p className="text-sm text-emerald-600">Extra assets added.</p> : null}
           <Button type="submit" variant="outline" size="sm" className="self-start" disabled={isGranting}>
             {isGranting ? "Adding..." : "Add extra assets"}
+          </Button>
+        </form>
+
+        <div className="flex flex-col gap-3 rounded-lg border p-4">
+          <p className="text-sm font-medium">Subscription</p>
+          <p className="text-xs text-muted-foreground">
+            Status: {billing?.subscriptionStatus ?? "none"}
+            {billing?.subscriptionType ? ` · ${billing.subscriptionType.replaceAll("_", " ")}` : ""}
+            {billing?.endsAt ? ` · ends ${new Date(billing.endsAt).toLocaleDateString("en-IN")}` : ""}
+          </p>
+          {subState.error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {subState.error}
+            </p>
+          ) : null}
+          {subState.success ? <p className="text-sm text-emerald-600">Subscription updated.</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={isSubSaving} onClick={() => handleSubscriptionStatus("active")}>
+              Activate
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={isSubSaving} onClick={() => handleSubscriptionStatus("suspended")}>
+              Suspend
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={isSubSaving} onClick={() => handleSubscriptionStatus("canceled")}>
+              Cancel
+            </Button>
+          </div>
+          <form action={handleExtend} className="flex flex-col gap-2">
+            <Label htmlFor="detail-endsAt">Extend until</Label>
+            <Input id="detail-endsAt" name="endsAt" type="date" required />
+            <Button type="submit" variant="outline" size="sm" className="self-start" disabled={isSubSaving}>
+              {isSubSaving ? "Saving..." : "Extend subscription"}
+            </Button>
+          </form>
+        </div>
+
+        <form action={handleRecordPayment} className="flex flex-col gap-3 rounded-lg border p-4">
+          <p className="text-sm font-medium">Record payment</p>
+          <p className="text-xs text-muted-foreground">
+            Offline methods such as RTGS, NEFT, UPI, cash, and cheque. Demo workspaces should not get fake ₹0 rows.
+          </p>
+          <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="detail-paymentMethod">Method</Label>
+              <NativeSelect id="detail-paymentMethod" name="paymentMethod" required defaultValue="bank_transfer">
+                <option value="razorpay">Razorpay</option>
+                <option value="upi">UPI</option>
+                <option value="bank_transfer">Bank transfer</option>
+                <option value="neft">NEFT</option>
+                <option value="rtgs">RTGS</option>
+                <option value="cash">Cash</option>
+                <option value="cheque">Cheque</option>
+                <option value="other">Other</option>
+              </NativeSelect>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="detail-amount">Amount (₹)</Label>
+              <Input id="detail-amount" name="amount" type="number" min={0} step={1} required />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="detail-paymentStatus">Status</Label>
+              <NativeSelect id="detail-paymentStatus" name="paymentStatus" defaultValue="paid">
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="partially_paid">Partially paid</option>
+                <option value="failed">Failed</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="refunded">Refunded</option>
+                <option value="waived">Waived</option>
+              </NativeSelect>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="detail-paymentDate">Payment date</Label>
+              <Input id="detail-paymentDate" name="paymentDate" type="date" required />
+            </div>
+            <div className="flex flex-col gap-1.5 @sm:col-span-2">
+              <Label htmlFor="detail-referenceNumber">Reference number</Label>
+              <Input id="detail-referenceNumber" name="referenceNumber" maxLength={120} />
+            </div>
+            <div className="flex flex-col gap-1.5 @sm:col-span-2">
+              <Label htmlFor="detail-paymentNotes">Notes</Label>
+              <Input id="detail-paymentNotes" name="paymentNotes" maxLength={1000} />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" name="activate" defaultChecked />
+            Activate subscription if this payment is marked paid
+          </label>
+          {paymentState.error ? (
+            <p role="alert" className="text-sm text-destructive">
+              {paymentState.error}
+            </p>
+          ) : null}
+          {paymentState.success ? <p className="text-sm text-emerald-600">Payment recorded.</p> : null}
+          <Button type="submit" variant="outline" size="sm" className="self-start" disabled={isRecording}>
+            {isRecording ? "Saving..." : "Record payment"}
           </Button>
         </form>
 

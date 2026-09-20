@@ -5,7 +5,15 @@ import { TENANT_HEADERS } from "@/lib/tenant";
 import { getSubscriptionForCompany } from "@/modules/billing/queries";
 import type { SubscriptionStatus } from "@/modules/billing/types";
 
-const READ_ONLY_STATUSES: SubscriptionStatus[] = ["pending_payment", "past_due", "halted", "canceled"];
+const READ_ONLY_STATUSES: SubscriptionStatus[] = [
+  "draft",
+  "pending_payment",
+  "past_due",
+  "halted",
+  "canceled",
+  "expired",
+  "suspended",
+];
 
 export const TENANT_READ_ONLY_MESSAGE =
   "This workspace is read-only until billing is active. You can still manage Settings.";

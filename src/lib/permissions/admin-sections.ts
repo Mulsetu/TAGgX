@@ -26,6 +26,8 @@ export const ADMIN_SECTIONS: AdminSection[] = [
   { title: "Reports", href: "/dashboard/administration/reports", module: "reports", feature: "reports" },
   { title: "Notifications", href: "/dashboard/administration/notifications", module: "notifications", feature: "email" },
   { title: "Activity", href: "/dashboard/administration/activity", module: "settings" },
+  { title: "Modules", href: "/dashboard/administration/settings#modules", module: "settings" },
+  { title: "Dashboard", href: "/dashboard/administration/settings#dashboard", module: "settings" },
   { title: "Settings", href: "/dashboard/administration/settings", module: "settings" },
 ];
 
@@ -55,12 +57,21 @@ export interface SidebarAdminNav {
 }
 
 export async function getSidebarAdminNav(): Promise<SidebarAdminNav> {
-  const [visible, enabled] = await Promise.all([getVisibleAdminSections(), getEnabledModules()]);
+  const [visible, enabled, canViewAssets] = await Promise.all([
+    getVisibleAdminSections(),
+    getEnabledModules(),
+    requirePermission("assets", "view"),
+  ]);
   const byHref = new Map(visible.map((section) => [section.href, section]));
   const usersAndRoles = visible.find((section) => section.module === "users" || section.module === "roles");
+  const settingsExtras = visible.filter(
+    (section) =>
+      section.href === "/dashboard/administration/settings#modules" ||
+      section.href === "/dashboard/administration/settings#dashboard",
+  );
 
   return {
-    assets: enabled.assets,
+    assets: enabled.assets && canViewAssets,
     maintenance: byHref.get("/dashboard/administration/maintenance") ?? null,
     audits: byHref.get("/dashboard/administration/audits") ?? null,
     settings: byHref.get("/dashboard/administration/settings") ?? null,
@@ -69,6 +80,7 @@ export async function getSidebarAdminNav(): Promise<SidebarAdminNav> {
     catalogSections: [
       ...(usersAndRoles ? [{ title: "Users & Roles", href: usersAndRoles.href, module: usersAndRoles.module }] : []),
       ...visible.filter((section) => CATALOG_MODULES.includes(section.module) && section.href !== usersAndRoles?.href),
+      ...settingsExtras,
     ],
   };
 }

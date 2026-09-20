@@ -12,7 +12,7 @@ export function safePostLoginPath(raw: string | string[] | undefined): string | 
     return null;
   }
 
-  if (value === "/dashboard" || value === "/floor" || UUID_PATH.test(value) || INTERNAL_PREFIX.test(value)) {
+  if (value === "/dashboard" || value === "/floor" || value === "/onboarding" || UUID_PATH.test(value) || INTERNAL_PREFIX.test(value)) {
     return value;
   }
 

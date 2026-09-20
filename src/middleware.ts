@@ -10,9 +10,10 @@ import { safePostLoginPath } from "@/lib/paths";
 import { resolveTenant, TENANT_HEADERS, tenantLoginPathFromCookie, TENANT_SLUG_COOKIE } from "@/lib/tenant";
 
 interface UserProfileRow {
-  company_id: string;
-  role_id: string;
+  company_id: string | null;
+  role_id: string | null;
   is_active: boolean;
+  is_company_admin: boolean;
 }
 
 function continueWithCookies(request: NextRequest, from: NextResponse, headers?: Headers): NextResponse {
@@ -40,6 +41,8 @@ function isPublicMarketingPath(pathname: string): boolean {
     pathname.startsWith("/inquire/") ||
     pathname === "/asset-management-system" ||
     pathname.startsWith("/asset-management-system/") ||
+    pathname === "/auth" ||
+    pathname.startsWith("/auth/") ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
     pathname === "/manifest.webmanifest" ||
@@ -79,6 +82,7 @@ export async function middleware(request: NextRequest) {
   const isAdminPublicPath = isAdminLoginPath || pathname === "/admin/forgot-password";
   const isAdminPath = pathname === "/admin" || pathname.startsWith("/admin/");
   const isPublicTagPath = pathname === "/tag" || pathname.startsWith("/tag/");
+  const isOnboardingPath = pathname === "/onboarding" || pathname.startsWith("/onboarding/");
 
   if (!user) {
     // Keep an existing session if Auth was only unreachable — writing
@@ -90,6 +94,7 @@ export async function middleware(request: NextRequest) {
       requestHeaders.delete(TENANT_HEADERS.companyId);
       requestHeaders.delete(TENANT_HEADERS.roleId);
       requestHeaders.delete(TENANT_HEADERS.isSuperAdmin);
+      requestHeaders.delete(TENANT_HEADERS.isCompanyAdmin);
       return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
@@ -104,11 +109,11 @@ export async function middleware(request: NextRequest) {
       );
     }
 
-    if (isAppShellPath) {
+    if (isAppShellPath || isOnboardingPath) {
       const tenantLogin = tenantLoginPathFromCookie(request.cookies.get(TENANT_SLUG_COOKIE)?.value);
       return applyAuthCookies(
         supabaseResponse,
-        NextResponse.redirect(new URL(tenantLogin ?? "/", request.url)),
+        NextResponse.redirect(new URL(isOnboardingPath ? "/signup" : (tenantLogin ?? "/"), request.url)),
       );
     }
 
@@ -122,18 +127,37 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
-  const [{ data: profile }, isSuperAdmin] = await Promise.all([
+  const [{ data: profileWithAdmin, error: profileError }, isSuperAdmin] = await Promise.all([
     supabase
       .from("users")
-      .select("company_id, role_id, is_active")
+      .select("company_id, role_id, is_active, is_company_admin")
       .eq("id", user.id)
       .maybeSingle<UserProfileRow>(),
     checkSuperAdmin(supabase, user.id),
   ]);
 
+  let profile = profileWithAdmin;
+  if (profileError && !profile) {
+    const fallback = await supabase
+      .from("users")
+      .select("company_id, role_id, is_active")
+      .eq("id", user.id)
+      .maybeSingle<{ company_id: string | null; role_id: string | null; is_active: boolean }>();
+    profile = fallback.data
+      ? { ...fallback.data, is_company_admin: false }
+      : null;
+  }
+
+  const hasCompany = Boolean(profile?.company_id);
+  const emailConfirmed = Boolean(user.email_confirmed_at);
+  const isAuthCallbackPath = pathname === "/auth" || pathname.startsWith("/auth/");
+  const isCheckEmailPath = pathname === "/signup/check-email" || pathname.startsWith("/signup/check-email");
+  const isResetPasswordPath = pathname === "/reset-password" || pathname.startsWith("/reset-password");
+  const isInvitePath = pathname === "/invite" || pathname.startsWith("/invite/");
+
   const tenantProfileInactive = profile?.is_active === false;
   let tenantCompanySuspended = false;
-  if (profile) {
+  if (profile?.company_id) {
     const { data: companyRow } = await supabase
       .from("companies")
       .select("suspended_at")
@@ -158,6 +182,41 @@ export async function middleware(request: NextRequest) {
       tenantLoginPathFromCookie(request.cookies.get(TENANT_SLUG_COOKIE)?.value) ??
       (tenant ? `/${tenant.slug}/login` : "/");
     return applyAuthCookies(getResponse(), NextResponse.redirect(new URL(loginPath, request.url)));
+  }
+
+  if (
+    !isSuperAdmin &&
+    !emailConfirmed &&
+    (isAppShellPath || isOnboardingPath || isProtectedTenantPath || (isAdminPath && !isAdminPublicPath)) &&
+    !isCheckEmailPath &&
+    !isAuthCallbackPath &&
+    !isResetPasswordPath &&
+    !isInvitePath
+  ) {
+    return applyAuthCookies(
+      supabaseResponse,
+      NextResponse.redirect(new URL("/signup/check-email", request.url)),
+    );
+  }
+
+  if (!isSuperAdmin && emailConfirmed && !hasCompany) {
+    if (isAppShellPath || (!isOnboardingPath && tenant !== null && !isTenantPublicPath) || isTenantLoginPath) {
+      return applyAuthCookies(supabaseResponse, NextResponse.redirect(new URL("/onboarding", request.url)));
+    }
+    if (pathname === "/signup") {
+      return applyAuthCookies(supabaseResponse, NextResponse.redirect(new URL("/onboarding", request.url)));
+    }
+  }
+
+  if (hasCompany && (isOnboardingPath || pathname === "/signup" || pathname.startsWith("/signup/"))) {
+    return applyAuthCookies(supabaseResponse, NextResponse.redirect(new URL("/dashboard", request.url)));
+  }
+
+  if (isOnboardingPath && !hasCompany && !emailConfirmed) {
+    return applyAuthCookies(
+      supabaseResponse,
+      NextResponse.redirect(new URL("/signup/check-email", request.url)),
+    );
   }
 
   if (isTenantLoginPath) {
@@ -191,9 +250,14 @@ export async function middleware(request: NextRequest) {
   }
 
   const requestHeaders = new Headers(request.headers);
-  if (profile) {
+  if (profile?.company_id) {
     requestHeaders.set(TENANT_HEADERS.companyId, profile.company_id);
+  }
+  if (profile?.role_id) {
     requestHeaders.set(TENANT_HEADERS.roleId, profile.role_id);
+  }
+  if (profile) {
+    requestHeaders.set(TENANT_HEADERS.isCompanyAdmin, String(profile.is_company_admin === true));
   }
   requestHeaders.set(TENANT_HEADERS.isSuperAdmin, String(isSuperAdmin));
 

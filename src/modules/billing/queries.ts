@@ -2,18 +2,23 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  BillingCycle,
   BillingOrder,
+  BillingPayment,
   BillingPlan,
   CompanyBillingSnapshot,
   CompanySubscription,
+  PaymentMethod,
+  PaymentStatus,
   SubscriptionStatus,
+  SubscriptionType,
 } from "./types";
 
 const PLAN_COLUMNS =
-  "id, name, description, price_monthly, currency, asset_limit, extra_asset_quantity, extra_asset_price, is_active, sort_order, razorpay_plan_id, included_modules, storage_limit_bytes";
+  "id, name, description, price_monthly, currency, asset_limit, extra_asset_quantity, extra_asset_price, is_active, sort_order, razorpay_plan_id, included_modules, storage_limit_bytes, user_limit";
 
 const SUBSCRIPTION_COLUMNS =
-  "id, company_id, plan_id, extra_assets, status, razorpay_customer_id, razorpay_subscription_id, payment_confirm_token";
+  "id, company_id, plan_id, extra_assets, status, subscription_type, billing_cycle, starts_at, ends_at, trial_starts_at, trial_ends_at, auto_renew, razorpay_customer_id, razorpay_subscription_id, payment_confirm_token";
 
 const ORDER_COLUMNS =
   "id, company_id, plan_id, packs, asset_quantity, amount, currency, status, razorpay_order_id, created_at, companies(name, slug)";
@@ -32,6 +37,7 @@ interface BillingPlanRow {
   razorpay_plan_id: string | null;
   included_modules: unknown;
   storage_limit_bytes: number | null;
+  user_limit: number | null;
 }
 
 interface SubscriptionRow {
@@ -40,6 +46,13 @@ interface SubscriptionRow {
   plan_id: string;
   extra_assets: number;
   status: SubscriptionStatus;
+  subscription_type: SubscriptionType;
+  billing_cycle: BillingCycle;
+  starts_at: string;
+  ends_at: string | null;
+  trial_starts_at: string | null;
+  trial_ends_at: string | null;
+  auto_renew: boolean;
   razorpay_customer_id: string | null;
   razorpay_subscription_id: string | null;
   payment_confirm_token: string | null;
@@ -76,6 +89,7 @@ function mapPlan(row: BillingPlanRow): BillingPlan {
       ? row.included_modules.filter((entry): entry is string => typeof entry === "string")
       : null,
     storageLimitBytes: row.storage_limit_bytes,
+    userLimit: row.user_limit,
   };
 }
 
@@ -86,6 +100,13 @@ function mapSubscription(row: SubscriptionRow): CompanySubscription {
     planId: row.plan_id,
     extraAssets: row.extra_assets,
     status: row.status,
+    subscriptionType: row.subscription_type,
+    billingCycle: row.billing_cycle,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    trialStartsAt: row.trial_starts_at,
+    trialEndsAt: row.trial_ends_at,
+    autoRenew: row.auto_renew,
     razorpayCustomerId: row.razorpay_customer_id,
     razorpaySubscriptionId: row.razorpay_subscription_id,
     paymentConfirmToken: row.payment_confirm_token,
@@ -226,6 +247,10 @@ interface SubscriptionJoinRow {
   extra_assets: number;
   plan_id: string;
   status: SubscriptionStatus;
+  subscription_type: SubscriptionType;
+  billing_cycle: BillingCycle;
+  starts_at: string;
+  ends_at: string | null;
   billing_plans: {
     name: string;
     price_monthly: number;
@@ -254,7 +279,7 @@ export async function listCompanyBillingSnapshots(): Promise<CompanyBillingSnaps
   const [subsRes, counts, ordersRes] = await Promise.all([
     supabase
       .from("company_subscriptions")
-      .select("company_id, extra_assets, plan_id, status, billing_plans(name, price_monthly, asset_limit)")
+      .select("company_id, extra_assets, plan_id, status, subscription_type, billing_cycle, starts_at, ends_at, billing_plans(name, price_monthly, asset_limit)")
       .returns<SubscriptionJoinRow[]>(),
     getCompanyAssetCounts(),
     supabase
@@ -283,6 +308,10 @@ export async function listCompanyBillingSnapshots(): Promise<CompanyBillingSnaps
       assetCount: counts.get(row.company_id) ?? 0,
       pendingOrderCount: pendingByCompany.get(row.company_id) ?? 0,
       subscriptionStatus: row.status,
+      subscriptionType: row.subscription_type,
+      billingCycle: row.billing_cycle,
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
     };
   });
 }
@@ -449,5 +478,87 @@ export async function getBillingOrderByRazorpayOrderId(razorpayOrderId: string):
     razorpayOrderId: data.razorpay_order_id,
     createdAt: data.created_at,
   };
+}
+
+interface PaymentRow {
+  id: string;
+  company_id: string;
+  subscription_id: string | null;
+  amount: number;
+  currency: string;
+  payment_method: PaymentMethod;
+  payment_status: PaymentStatus;
+  reference_number: string | null;
+  payment_date: string;
+  provider: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+function mapPayment(row: PaymentRow): BillingPayment {
+  return {
+    id: row.id,
+    companyId: row.company_id,
+    subscriptionId: row.subscription_id,
+    amount: row.amount,
+    currency: row.currency,
+    paymentMethod: row.payment_method,
+    paymentStatus: row.payment_status,
+    referenceNumber: row.reference_number,
+    paymentDate: row.payment_date,
+    provider: row.provider,
+    notes: row.notes,
+    createdAt: row.created_at,
+  };
+}
+
+const PAYMENT_COLUMNS =
+  "id, company_id, subscription_id, amount, currency, payment_method, payment_status, reference_number, payment_date, provider, notes, created_at";
+
+export async function listPaymentsForCompany(companyId: string): Promise<BillingPayment[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("billing_payments")
+    .select(PAYMENT_COLUMNS)
+    .eq("company_id", companyId)
+    .order("payment_date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(50)
+    .returns<PaymentRow[]>();
+  if (error || !data) {
+    return [];
+  }
+  return data.map(mapPayment);
+}
+
+export async function listRecentPayments(): Promise<BillingPayment[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("billing_payments")
+    .select(PAYMENT_COLUMNS)
+    .order("created_at", { ascending: false })
+    .limit(100)
+    .returns<PaymentRow[]>();
+  if (error || !data) {
+    return [];
+  }
+  return data.map(mapPayment);
+}
+
+export async function getPaymentByReference(
+  provider: string,
+  referenceNumber: string,
+): Promise<BillingPayment | null> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("billing_payments")
+    .select(PAYMENT_COLUMNS)
+    .eq("provider", provider)
+    .eq("reference_number", referenceNumber)
+    .maybeSingle<PaymentRow>();
+  if (error || !data) {
+    return null;
+  }
+  return mapPayment(data);
 }
 

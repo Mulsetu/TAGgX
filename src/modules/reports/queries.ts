@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { DashboardTile, ImportJobSummary, ReportKey, ReportTable } from "./types";
+import type { DashboardWidgetKey } from "@/lib/permissions/workspace-config";
+import type { ImportJobSummary, ReportKey, ReportTable } from "./types";
 
 interface AssetReportRow {
   id: string;
@@ -185,78 +186,283 @@ async function listAuditExceptions(): Promise<ReportTable> {
   };
 }
 
-export async function getDashboardTiles(): Promise<DashboardTile[]> {
+export interface DashboardWidgetData {
+  values: Partial<Record<DashboardWidgetKey, number>>;
+  charts: Partial<Record<DashboardWidgetKey, { name: string; value: number }[]>>;
+}
+
+export async function getDashboardWidgetData(keys: DashboardWidgetKey[]): Promise<DashboardWidgetData> {
+  const needed = new Set(keys);
+  if (needed.size === 0) {
+    return { values: {}, charts: {} };
+  }
+
   const supabase = createClient();
   const today = new Date().toISOString().slice(0, 10);
   const soon = new Date();
   soon.setUTCDate(soon.getUTCDate() + 30);
   const soonDate = soon.toISOString().slice(0, 10);
 
-  const [
-    total,
-    active,
-    missing,
-    unassigned,
-    overdue,
-    warranty,
-    amc,
-    insurance,
-    audits,
-    exceptions,
-    pendingTransfers,
-    storage,
-  ] = await Promise.all([
-    supabase.from("assets").select("id", { count: "exact", head: true }).is("deleted_at", null),
-    supabase.from("assets").select("id", { count: "exact", head: true }).is("deleted_at", null).is("archived_at", null),
-    supabase.from("assets").select("id", { count: "exact", head: true }).is("location_id", null).is("deleted_at", null),
-    supabase.from("assets").select("id", { count: "exact", head: true }).is("allotted_to", null).is("deleted_at", null),
-    supabase
-      .from("maintenance_tickets")
-      .select("id", { count: "exact", head: true })
-      .in("status", ["open", "in_progress"])
-      .lt("due_at", today),
-    supabase
-      .from("assets")
-      .select("id", { count: "exact", head: true })
-      .gte("warranty_end_date", today)
-      .lte("warranty_end_date", soonDate),
-    supabase
-      .from("assets")
-      .select("id", { count: "exact", head: true })
-      .gte("amc_end_date", today)
-      .lte("amc_end_date", soonDate),
-    supabase
-      .from("assets")
-      .select("id", { count: "exact", head: true })
-      .gte("insurance_expiry_date", today)
-      .lte("insurance_expiry_date", soonDate),
-    supabase.from("audits").select("id", { count: "exact", head: true }).eq("status", "active"),
-    supabase.from("audit_items").select("id", { count: "exact", head: true }).eq("status", "exception"),
-    supabase.from("asset_transfers").select("id", { count: "exact", head: true }).eq("status", "pending"),
-    supabase.from("company_settings").select("storage_used_bytes, storage_limit_bytes").maybeSingle<{
-      storage_used_bytes: number;
-      storage_limit_bytes: number;
-    }>(),
-  ]);
+  const count = async (query: PromiseLike<{ count: number | null }>) => (await query).count ?? 0;
+  const values: DashboardWidgetData["values"] = {};
+  const charts: DashboardWidgetData["charts"] = {};
 
-  const used = storage.data?.storage_used_bytes ?? 0;
-  const limit = storage.data?.storage_limit_bytes ?? 0;
-  const storagePct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+  const jobs: Promise<void>[] = [];
 
-  return [
-    { id: "total_assets", label: "Total assets", value: total.count ?? 0, href: "/assets" },
-    { id: "active_assets", label: "Active assets", value: active.count ?? 0, href: "/assets" },
-    { id: "missing_assets", label: "Missing location", value: missing.count ?? 0, href: "/dashboard/administration/reports" },
-    { id: "unassigned_assets", label: "Unassigned", value: unassigned.count ?? 0, href: "/dashboard/administration/reports" },
-    { id: "maintenance_due", label: "Overdue maintenance", value: overdue.count ?? 0, href: "/dashboard/administration/maintenance" },
-    { id: "warranty_expiry", label: "Warranty in 30 days", value: warranty.count ?? 0, href: "/dashboard/administration/reports" },
-    { id: "amc_expiry", label: "AMC in 30 days", value: amc.count ?? 0, href: "/dashboard/administration/reports" },
-    { id: "insurance_expiry", label: "Insurance in 30 days", value: insurance.count ?? 0, href: "/dashboard/administration/reports" },
-    { id: "audit_progress", label: "Active audits", value: audits.count ?? 0, href: "/dashboard/administration/audits" },
-    { id: "open_exceptions", label: "Open exceptions", value: exceptions.count ?? 0, href: "/dashboard/administration/audits" },
-    { id: "pending_approvals", label: "Pending transfers", value: pendingTransfers.count ?? 0, href: "/assets" },
-    { id: "storage_usage", label: "Storage used %", value: storagePct, href: "/dashboard/administration/settings" },
-  ];
+  if (needed.has("total_assets")) {
+    jobs.push(
+      (async () => {
+        values.total_assets = await count(
+          supabase.from("assets").select("id", { count: "exact", head: true }).is("deleted_at", null),
+        );
+      })(),
+    );
+  }
+  if (needed.has("active_assets")) {
+    jobs.push(
+      (async () => {
+        values.active_assets = await count(
+          supabase
+            .from("assets")
+            .select("id", { count: "exact", head: true })
+            .is("deleted_at", null)
+            .is("archived_at", null),
+        );
+      })(),
+    );
+  }
+  if (needed.has("missing_assets")) {
+    jobs.push(
+      (async () => {
+        values.missing_assets = await count(
+          supabase
+            .from("assets")
+            .select("id", { count: "exact", head: true })
+            .is("location_id", null)
+            .is("deleted_at", null),
+        );
+      })(),
+    );
+  }
+  if (needed.has("unassigned_assets")) {
+    jobs.push(
+      (async () => {
+        values.unassigned_assets = await count(
+          supabase
+            .from("assets")
+            .select("id", { count: "exact", head: true })
+            .is("allotted_to", null)
+            .is("deleted_at", null),
+        );
+      })(),
+    );
+  }
+  if (needed.has("assets_under_maintenance")) {
+    jobs.push(
+      (async () => {
+        values.assets_under_maintenance = await count(
+          supabase
+            .from("maintenance_tickets")
+            .select("id", { count: "exact", head: true })
+            .in("status", ["open", "in_progress"]),
+        );
+      })(),
+    );
+  }
+  if (needed.has("maintenance_due")) {
+    jobs.push(
+      (async () => {
+        values.maintenance_due = await count(
+          supabase
+            .from("maintenance_tickets")
+            .select("id", { count: "exact", head: true })
+            .in("status", ["open", "in_progress"])
+            .lt("due_at", today),
+        );
+      })(),
+    );
+  }
+  if (needed.has("upcoming_maintenance")) {
+    jobs.push(
+      (async () => {
+        values.upcoming_maintenance = await count(
+          supabase
+            .from("maintenance_tickets")
+            .select("id", { count: "exact", head: true })
+            .in("status", ["open", "in_progress"])
+            .gte("due_at", today)
+            .lte("due_at", soonDate),
+        );
+      })(),
+    );
+  }
+  if (needed.has("warranty_expiry")) {
+    jobs.push(
+      (async () => {
+        values.warranty_expiry = await count(
+          supabase
+            .from("assets")
+            .select("id", { count: "exact", head: true })
+            .gte("warranty_end_date", today)
+            .lte("warranty_end_date", soonDate),
+        );
+      })(),
+    );
+  }
+  if (needed.has("amc_expiry")) {
+    jobs.push(
+      (async () => {
+        values.amc_expiry = await count(
+          supabase
+            .from("assets")
+            .select("id", { count: "exact", head: true })
+            .gte("amc_end_date", today)
+            .lte("amc_end_date", soonDate),
+        );
+      })(),
+    );
+  }
+  if (needed.has("insurance_expiry")) {
+    jobs.push(
+      (async () => {
+        values.insurance_expiry = await count(
+          supabase
+            .from("assets")
+            .select("id", { count: "exact", head: true })
+            .gte("insurance_expiry_date", today)
+            .lte("insurance_expiry_date", soonDate),
+        );
+      })(),
+    );
+  }
+  if (needed.has("document_expiry")) {
+    jobs.push(
+      (async () => {
+        values.document_expiry = await count(
+          supabase
+            .from("asset_documents")
+            .select("id", { count: "exact", head: true })
+            .gte("expires_at", today)
+            .lte("expires_at", soonDate),
+        );
+      })(),
+    );
+  }
+  if (needed.has("audit_progress")) {
+    jobs.push(
+      (async () => {
+        values.audit_progress = await count(
+          supabase.from("audits").select("id", { count: "exact", head: true }).eq("status", "active"),
+        );
+      })(),
+    );
+  }
+  if (needed.has("pending_audits")) {
+    jobs.push(
+      (async () => {
+        values.pending_audits = await count(
+          supabase.from("audits").select("id", { count: "exact", head: true }).eq("status", "draft"),
+        );
+      })(),
+    );
+  }
+  if (needed.has("open_exceptions")) {
+    jobs.push(
+      (async () => {
+        values.open_exceptions = await count(
+          supabase.from("audit_items").select("id", { count: "exact", head: true }).eq("status", "exception"),
+        );
+      })(),
+    );
+  }
+  if (needed.has("missing_from_audit")) {
+    jobs.push(
+      (async () => {
+        values.missing_from_audit = await count(
+          supabase.from("audit_items").select("id", { count: "exact", head: true }).eq("status", "unverified"),
+        );
+      })(),
+    );
+  }
+  if (needed.has("pending_approvals")) {
+    jobs.push(
+      (async () => {
+        values.pending_approvals = await count(
+          supabase.from("asset_transfers").select("id", { count: "exact", head: true }).eq("status", "pending"),
+        );
+      })(),
+    );
+  }
+  if (needed.has("vendor_summary")) {
+    jobs.push(
+      (async () => {
+        values.vendor_summary = await count(supabase.from("vendors").select("id", { count: "exact", head: true }));
+      })(),
+    );
+  }
+  if (needed.has("storage_usage")) {
+    jobs.push(
+      (async () => {
+        const { data } = await supabase
+          .from("company_settings")
+          .select("storage_used_bytes, storage_limit_bytes")
+          .maybeSingle<{ storage_used_bytes: number; storage_limit_bytes: number }>();
+        const used = data?.storage_used_bytes ?? 0;
+        const limit = data?.storage_limit_bytes ?? 0;
+        values.storage_usage = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+      })(),
+    );
+  }
+  if (needed.has("by_category")) {
+    jobs.push(
+      (async () => {
+        const { data } = await supabase.rpc("get_asset_counts_by_category");
+        charts.by_category = ((data as { category_name: string; count: string }[] | null) ?? []).map((row) => ({
+          name: row.category_name,
+          value: Number(row.count),
+        }));
+      })(),
+    );
+  }
+  if (needed.has("by_status")) {
+    jobs.push(
+      (async () => {
+        const { data } = await supabase.rpc("get_asset_counts_by_status");
+        charts.by_status = ((data as { status_name: string; count: string }[] | null) ?? []).map((row) => ({
+          name: row.status_name,
+          value: Number(row.count),
+        }));
+      })(),
+    );
+  }
+  if (needed.has("by_location")) {
+    jobs.push(
+      (async () => {
+        const { data } = await supabase.rpc("get_asset_counts_by_location");
+        charts.by_location = ((data as { location_name: string; count: string }[] | null) ?? []).map((row) => ({
+          name: row.location_name,
+          value: Number(row.count),
+        }));
+      })(),
+    );
+  }
+  if (needed.has("open_tickets")) {
+    jobs.push(
+      (async () => {
+        const open = await count(
+          supabase
+            .from("maintenance_tickets")
+            .select("id", { count: "exact", head: true })
+            .in("status", ["open", "in_progress"]),
+        );
+        values.open_tickets = open;
+        charts.open_tickets = [{ name: "Open", value: open }];
+      })(),
+    );
+  }
+
+  await Promise.all(jobs);
+  return { values, charts };
 }
 
 export async function listImportJobs(): Promise<ImportJobSummary[]> {

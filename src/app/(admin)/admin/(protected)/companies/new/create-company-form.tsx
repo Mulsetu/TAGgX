@@ -16,7 +16,11 @@ const initialState: CreateCompanyState = { error: null };
 export function CreateCompanyForm({ plans }: { plans: BillingPlan[] }) {
   const [state, setState] = useState<CreateCompanyState>(initialState);
   const [isDedicatedInfra, setIsDedicatedInfra] = useState(false);
+  const [subscriptionType, setSubscriptionType] = useState("sales_assisted");
   const [isPending, startTransition] = useTransition();
+
+  const skipPayment =
+    subscriptionType === "demo" || subscriptionType === "complimentary" || subscriptionType === "trial";
 
   function handleSubmit(formData: FormData) {
     if (isDedicatedInfra) {
@@ -31,10 +35,10 @@ export function CreateCompanyForm({ plans }: { plans: BillingPlan[] }) {
 
   if (state.inviteUrl) {
     return (
-      <div className="flex w-full max-w-sm flex-col gap-3 rounded-lg border p-4">
+      <div className="flex w-full max-w-lg flex-col gap-3 rounded-lg border p-4">
         <p className="text-sm font-medium">Company created</p>
         <p className="text-sm text-muted-foreground">
-          Setup link for the new admin (dev mode — no email was sent):
+          Setup link for the new Company Admin (dev mode — no email was sent):
         </p>
         <a
           href={state.inviteUrl}
@@ -50,7 +54,7 @@ export function CreateCompanyForm({ plans }: { plans: BillingPlan[] }) {
   }
 
   return (
-    <form action={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
+    <form action={handleSubmit} className="flex w-full max-w-lg flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="name">Company name</Label>
         <Input id="name" name="name" required maxLength={200} />
@@ -59,15 +63,16 @@ export function CreateCompanyForm({ plans }: { plans: BillingPlan[] }) {
         <Label htmlFor="slug">Slug</Label>
         <Input id="slug" name="slug" placeholder="acme" required pattern="[a-z0-9\-]+" />
         <p className="text-xs text-muted-foreground">
-          Lowercase letters, numbers, and hyphens only. Used in the login URL.
+          Used in the company login URL. The customer sets their own password from the invite.
         </p>
       </div>
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="adminEmail">Admin email</Label>
+        <Label htmlFor="adminEmail">Company Admin email</Label>
         <Input id="adminEmail" name="adminEmail" type="email" required />
-        <p className="text-xs text-muted-foreground">
-          They&apos;ll get a setup link to create their password and sign in.
-        </p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="adminName">Company Admin name (optional)</Label>
+        <Input id="adminName" name="adminName" maxLength={200} />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="planId">Plan</Label>
@@ -80,10 +85,107 @@ export function CreateCompanyForm({ plans }: { plans: BillingPlan[] }) {
             </option>
           ))}
         </NativeSelect>
-        <p className="text-xs text-muted-foreground">
-          Assigns the asset cap immediately. You can change this later from the company row.
-        </p>
       </div>
+      <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="subscriptionType">Subscription type</Label>
+          <NativeSelect
+            id="subscriptionType"
+            name="subscriptionType"
+            value={subscriptionType}
+            onChange={(event) => setSubscriptionType(event.target.value)}
+          >
+            <option value="sales_assisted">Sales-assisted</option>
+            <option value="self_service">Self-service</option>
+            <option value="enterprise">Enterprise</option>
+            <option value="demo">Demo</option>
+            <option value="trial">Trial</option>
+            <option value="complimentary">Complimentary</option>
+          </NativeSelect>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="billingCycle">Billing cycle</Label>
+          <NativeSelect id="billingCycle" name="billingCycle" defaultValue="monthly">
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+            <option value="custom">Custom</option>
+          </NativeSelect>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="startsAt">Start date</Label>
+          <Input id="startsAt" name="startsAt" type="date" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="endsAt">End date</Label>
+          <Input id="endsAt" name="endsAt" type="date" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="subscriptionStatus">Subscription status</Label>
+          <NativeSelect id="subscriptionStatus" name="subscriptionStatus" defaultValue="">
+            <option value="">Automatic</option>
+            <option value="trial">Trial</option>
+            <option value="pending_payment">Pending payment</option>
+            <option value="active">Active</option>
+          </NativeSelect>
+        </div>
+      </div>
+      {skipPayment ? (
+        <p className="text-xs text-muted-foreground">
+          Demo, trial, and complimentary workspaces do not create payment records.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3 rounded-lg border p-4">
+          <p className="text-sm font-medium">Record payment (optional)</p>
+          <p className="text-xs text-muted-foreground">
+            Use this for RTGS, NEFT, UPI, cash, cheque, or other offline payments. Leave blank to
+            invite the customer with a pending subscription.
+          </p>
+          <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="paymentMethod">Method</Label>
+              <NativeSelect id="paymentMethod" name="paymentMethod" defaultValue="">
+                <option value="">None</option>
+                <option value="razorpay">Razorpay</option>
+                <option value="upi">UPI</option>
+                <option value="bank_transfer">Bank transfer</option>
+                <option value="neft">NEFT</option>
+                <option value="rtgs">RTGS</option>
+                <option value="cash">Cash</option>
+                <option value="cheque">Cheque</option>
+                <option value="other">Other</option>
+              </NativeSelect>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="paymentAmount">Amount (₹)</Label>
+              <Input id="paymentAmount" name="paymentAmount" type="number" min={0} step={1} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="paymentStatus">Payment status</Label>
+              <NativeSelect id="paymentStatus" name="paymentStatus" defaultValue="paid">
+                <option value="pending">Pending</option>
+                <option value="paid">Paid</option>
+                <option value="partially_paid">Partially paid</option>
+                <option value="failed">Failed</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="refunded">Refunded</option>
+                <option value="waived">Waived</option>
+              </NativeSelect>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="paymentDate">Payment date</Label>
+              <Input id="paymentDate" name="paymentDate" type="date" />
+            </div>
+            <div className="flex flex-col gap-1.5 @sm:col-span-2">
+              <Label htmlFor="paymentReference">Reference number</Label>
+              <Input id="paymentReference" name="paymentReference" maxLength={120} />
+            </div>
+            <div className="flex flex-col gap-1.5 @sm:col-span-2">
+              <Label htmlFor="paymentNotes">Notes</Label>
+              <Input id="paymentNotes" name="paymentNotes" maxLength={1000} />
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <Checkbox
           id="isDedicatedInfra"
@@ -100,7 +202,7 @@ export function CreateCompanyForm({ plans }: { plans: BillingPlan[] }) {
         </p>
       ) : null}
       <Button type="submit" disabled={isPending}>
-        {isPending ? "Creating..." : "Create company"}
+        {isPending ? "Creating..." : "Create company and send invite"}
       </Button>
     </form>
   );

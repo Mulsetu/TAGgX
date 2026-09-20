@@ -14,11 +14,52 @@ export const slugSchema = z
   .max(63)
   .regex(SLUG_REGEX, "Slug must be lowercase letters, numbers, and hyphens only");
 
+const emptyToUndefined = (value: unknown) => (value === "" || value === null ? undefined : value);
+
 export const createCompanySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   slug: slugSchema,
   isDedicatedInfra: z.boolean(),
   adminEmail: z.string().trim().email("Enter a valid admin email"),
+  adminName: z.preprocess(emptyToUndefined, z.string().trim().max(200).optional()),
+  subscriptionType: z.preprocess(
+    emptyToUndefined,
+    z.enum(["self_service", "sales_assisted", "demo", "trial", "enterprise", "complimentary"]).optional(),
+  ),
+  billingCycle: z.preprocess(emptyToUndefined, z.enum(["monthly", "yearly", "custom"]).optional()),
+  startsAt: z.preprocess(emptyToUndefined, z.string().trim().optional()),
+  endsAt: z.preprocess(emptyToUndefined, z.string().trim().optional()),
+  subscriptionStatus: z.preprocess(
+    emptyToUndefined,
+    z
+      .enum([
+        "draft",
+        "trial",
+        "pending_payment",
+        "active",
+        "past_due",
+        "expired",
+        "suspended",
+        "halted",
+        "canceled",
+      ])
+      .optional(),
+  ),
+  paymentMethod: z.preprocess(
+    emptyToUndefined,
+    z.enum(["razorpay", "upi", "bank_transfer", "neft", "rtgs", "cash", "cheque", "other"]).optional(),
+  ),
+  paymentAmount: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(0).optional(),
+  ),
+  paymentStatus: z.preprocess(
+    emptyToUndefined,
+    z.enum(["pending", "paid", "failed", "cancelled", "partially_paid", "refunded", "waived"]).optional(),
+  ),
+  paymentReference: z.preprocess(emptyToUndefined, z.string().trim().max(120).optional()),
+  paymentDate: z.preprocess(emptyToUndefined, z.string().trim().optional()),
+  paymentNotes: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
 });
 
 // Slug is deliberately excluded — read-only after creation, see
@@ -42,8 +83,6 @@ const hexColorSchema = z
 // narrower surface than updateCompanySchema: no slug, no isDedicatedInfra
 // (super-admin only). logoUrl isn't here — it's produced by the upload
 // step in actions.ts, not typed in from the form.
-const emptyToUndefined = (value: unknown) => (value === "" || value === null ? undefined : value);
-
 export const updateCompanyBrandingSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   primaryColor: hexColorSchema,

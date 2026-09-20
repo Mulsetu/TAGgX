@@ -2,32 +2,26 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingFooter } from "@/components/marketing/site-footer";
 import { MarketingHeader } from "@/components/marketing/site-header";
-import { MULSETU_CONTACT_URL, SITE_PARENT } from "@/lib/site";
-import { getActivePlansForPublic, getPlanForSignup } from "@/modules/billing/actions";
+import { SITE_PARENT } from "@/lib/site";
 import { SignupForm } from "./signup-form";
 
 export const metadata: Metadata = {
-  title: "Create your workspace",
+  title: "Create your account",
   description:
-    "Create a TagX workspace for your company. Pick a unique slug, choose a plan, and white-label asset tracking with your logo. A Mulsetu product.",
+    "Create a TagX account, verify your email, then set up your company workspace. A Mulsetu product.",
   alternates: { canonical: "/signup" },
   openGraph: {
     url: "/signup",
-    title: "Create your TagX workspace",
-    description:
-      "Claim a unique organization URL and start tagging assets with TagX - white-labeled asset tracking by Mulsetu.",
+    title: "Create your TagX account",
+    description: "Create an account, verify your email, and start a TagX workspace for your company.",
   },
 };
 
 interface SignupPageProps {
-  searchParams: { plan?: string };
+  searchParams: { plan?: string; error?: string };
 }
 
-export default async function SignupPage({ searchParams }: SignupPageProps) {
-  const plans = await getActivePlansForPublic();
-  const selected =
-    typeof searchParams.plan === "string" ? await getPlanForSignup(searchParams.plan) : null;
-
+export default function SignupPage({ searchParams }: SignupPageProps) {
   return (
     <div className="flex min-h-screen flex-col bg-white text-[#07343C]">
       <MarketingHeader />
@@ -36,32 +30,26 @@ export default async function SignupPage({ searchParams }: SignupPageProps) {
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B9E3A]">
             A {SITE_PARENT} product
           </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">Create your TagX workspace</h1>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight">Create your TagX account</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Your slug becomes the login URL for everyone in your company. You can upload a logo now
-            or later in Settings.
+            Verify your email, then create a company workspace and choose a plan. Existing companies
+            add people by invitation — you cannot join one from this page.
           </p>
         </div>
-        {plans.length === 0 ? (
-          <div className="rounded-xl border border-[#0F6E7A]/15 p-5 text-sm leading-6 text-[#07343C]/75">
-            Plans are not published yet. Check the{" "}
-            <Link href="/#pricing" className="font-medium text-[#0F6E7A] underline-offset-4 hover:underline">
-              pricing section
-            </Link>{" "}
-            shortly, or{" "}
-            <a
-              href={MULSETU_CONTACT_URL}
-              className="font-medium text-[#0F6E7A] underline-offset-4 hover:underline"
-              rel="noreferrer"
-              target="_blank"
-            >
-              talk to {SITE_PARENT}
-            </a>
-            .
-          </div>
-        ) : (
-          <SignupForm plans={plans} selectedPlanId={selected?.id ?? plans[0]?.id ?? ""} />
-        )}
+        {searchParams.error === "confirm" ? (
+          <p role="alert" className="text-sm text-destructive">
+            That verification link is invalid or has expired. Create the account again or request a new
+            email.
+          </p>
+        ) : null}
+        <SignupForm planId={searchParams.plan} />
+        <p className="text-center text-xs text-muted-foreground">
+          Already have a workspace?{" "}
+          <Link href="/login" className="underline-offset-4 hover:underline">
+            Sign in
+          </Link>
+          .
+        </p>
       </main>
       <MarketingFooter />
     </div>

@@ -7,6 +7,12 @@ export interface CategoryAssetCount {
   count: number;
 }
 
+export interface LocationAssetCount {
+  locationId: string | null;
+  locationName: string;
+  count: number;
+}
+
 export interface StatusAssetCount {
   statusId: string;
   statusName: string;

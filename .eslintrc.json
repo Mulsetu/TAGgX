@@ -5,6 +5,7 @@
     "plugin:security/recommended-legacy"
   ],
   "plugins": ["security"],
+  "ignorePatterns": ["TagX-main-2/**"],
   "overrides": [
     {
       "files": ["src/app/**/*.{ts,tsx}", "src/components/**/*.{ts,tsx}"],

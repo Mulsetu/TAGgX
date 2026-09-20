@@ -8,8 +8,9 @@ interface UserWithRoleRow {
   id: string;
   email: string;
   full_name: string | null;
-  company_id: string;
+  company_id: string | null;
   vendor_id: string | null;
+  is_company_admin: boolean;
   roles: { id: string; name: string } | null;
 }
 
@@ -23,11 +24,31 @@ export async function getUserWithRole(userId: string): Promise<CurrentUser | nul
 
   const { data, error } = await supabase
     .from("users")
-    .select("id, email, full_name, company_id, vendor_id, roles(id, name)")
+    .select("id, email, full_name, company_id, vendor_id, is_company_admin, roles(id, name)")
     .eq("id", userId)
     .maybeSingle<UserWithRoleRow>();
 
-  if (error || !data) {
+  if (error) {
+    const fallback = await supabase
+      .from("users")
+      .select("id, email, full_name, company_id, vendor_id, roles(id, name)")
+      .eq("id", userId)
+      .maybeSingle<Omit<UserWithRoleRow, "is_company_admin">>();
+    if (!fallback.data) {
+      return null;
+    }
+    return {
+      id: fallback.data.id,
+      email: fallback.data.email,
+      fullName: fallback.data.full_name,
+      companyId: fallback.data.company_id,
+      vendorId: fallback.data.vendor_id,
+      isCompanyAdmin: false,
+      role: fallback.data.roles ? { id: fallback.data.roles.id, name: fallback.data.roles.name } : null,
+    };
+  }
+
+  if (!data) {
     return null;
   }
 
@@ -37,6 +58,7 @@ export async function getUserWithRole(userId: string): Promise<CurrentUser | nul
     fullName: data.full_name,
     companyId: data.company_id,
     vendorId: data.vendor_id,
+    isCompanyAdmin: data.is_company_admin === true,
     role: data.roles ? { id: data.roles.id, name: data.roles.name } : null,
   };
 }
@@ -87,6 +109,7 @@ interface CompanyUserRow {
   email: string;
   full_name: string | null;
   is_active: boolean;
+  is_company_admin: boolean;
   role_id: string;
   created_at: string;
   roles: { name: string } | null;
@@ -98,11 +121,29 @@ export async function listCompanyUsers(): Promise<CompanyUserSummary[]> {
 
   const { data, error } = await supabase
     .from("users")
-    .select("id, email, full_name, is_active, role_id, created_at, roles(name)")
+    .select("id, email, full_name, is_active, is_company_admin, role_id, created_at, roles(name)")
     .order("created_at")
     .returns<CompanyUserRow[]>();
 
-  if (error || !data) {
+  if (error) {
+    const fallback = await supabase
+      .from("users")
+      .select("id, email, full_name, is_active, role_id, created_at, roles(name)")
+      .order("created_at")
+      .returns<Omit<CompanyUserRow, "is_company_admin">[]>();
+    return (fallback.data ?? []).map((row) => ({
+      id: row.id,
+      email: row.email,
+      fullName: row.full_name,
+      isActive: row.is_active,
+      isCompanyAdmin: false,
+      roleId: row.role_id,
+      roleName: row.roles?.name ?? "—",
+      createdAt: row.created_at,
+    }));
+  }
+
+  if (!data) {
     return [];
   }
 
@@ -111,6 +152,7 @@ export async function listCompanyUsers(): Promise<CompanyUserSummary[]> {
     email: row.email,
     fullName: row.full_name,
     isActive: row.is_active,
+    isCompanyAdmin: row.is_company_admin === true,
     roleId: row.role_id,
     roleName: row.roles?.name ?? "—",
     createdAt: row.created_at,

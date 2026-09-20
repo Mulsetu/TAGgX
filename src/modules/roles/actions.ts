@@ -4,13 +4,14 @@ import "server-only";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { TENANT_HEADERS } from "@/lib/tenant";
-import { requirePermission, getCurrentUserPermissions, hasPermission } from "@/lib/permissions/has-permission";
+import { isCurrentUserCompanyAdmin, requirePermission, getCurrentUserPermissions, hasPermission } from "@/lib/permissions/has-permission";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
+import { writeAuditLog } from "@/lib/audit-log";
 import { PERMISSION_ACTIONS, PERMISSION_MODULES } from "@/lib/permissions/taxonomy";
 import type { PermissionsMap } from "@/lib/permissions/taxonomy";
 import { listRoles } from "./queries";
-import { createRole, deleteRole, updateRolePermissions } from "./mutations";
+import { createRole, deleteRole, duplicateRole, updateRolePermissions } from "./mutations";
 import { createRoleSchema } from "./validation";
 import type { RoleFormState, RoleSummary } from "./types";
 
@@ -52,6 +53,13 @@ export async function createRoleAction(
     return { error: result.error };
   }
 
+  await writeAuditLog({
+    action: "role.created",
+    entityType: "role",
+    entityId: result.id,
+    newValues: { name: parsed.data.name },
+  });
+
   revalidatePath("/dashboard/administration");
   return { error: null };
 }
@@ -86,7 +94,7 @@ export async function updateRolePermissionsAction(
     );
   }
 
-  if (!(await isCurrentUserSuperAdmin())) {
+  if (!(await isCurrentUserSuperAdmin()) && !(await isCurrentUserCompanyAdmin())) {
     const caller = await getCurrentUserPermissions();
     for (const moduleKey of PERMISSION_MODULES) {
       const granted = sanitized[moduleKey] ?? [];
@@ -103,6 +111,13 @@ export async function updateRolePermissionsAction(
     return { error: result.error };
   }
 
+  await writeAuditLog({
+    action: "role.permissions_changed",
+    entityType: "role",
+    entityId: roleId,
+    newValues: { permissions: sanitized },
+  });
+
   revalidatePath("/dashboard/administration");
   return { error: null };
 }
@@ -118,4 +133,41 @@ export async function deleteRoleAction(roleId: string): Promise<{ error: string 
   const result = await deleteRole(roleId);
   revalidatePath("/dashboard/administration");
   return result;
+}
+
+export async function duplicateRoleAction(roleId: string): Promise<{ error: string | null }> {
+  if (!(await requireWritableTenant())) {
+    return { error: TENANT_READ_ONLY_MESSAGE };
+  }
+  if (!(await requirePermission("roles", "create"))) {
+    return { error: "You don't have permission to create roles." };
+  }
+
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  if (!companyId) {
+    return { error: "Could not determine your company." };
+  }
+
+  const roles = await listRoles();
+  const source = roles.find((role) => role.id === roleId);
+  if (!source) {
+    return { error: "Role not found." };
+  }
+
+  const base = `${source.name} copy`.slice(0, 90);
+  let name = base;
+  let suffix = 2;
+  const names = new Set(roles.map((role) => role.name.toLowerCase()));
+  while (names.has(name.toLowerCase())) {
+    name = `${base} ${suffix}`;
+    suffix += 1;
+  }
+
+  const result = await duplicateRole(companyId, roleId, name);
+  if ("error" in result) {
+    return { error: result.error };
+  }
+
+  revalidatePath("/dashboard/administration");
+  return { error: null };
 }

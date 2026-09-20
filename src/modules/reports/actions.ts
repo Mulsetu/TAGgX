@@ -9,18 +9,25 @@ import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissio
 import { getWorkspaceRuntime, requireModule } from "@/lib/permissions/features";
 import { REPORT_MODULE_MAP } from "@/lib/permissions/feature-catalog";
 import {
+  DASHBOARD_WIDGET_HREFS,
+  DASHBOARD_WIDGET_KEYS,
+  DASHBOARD_WIDGET_KIND,
+  DASHBOARD_WIDGET_LABELS,
   DASHBOARD_WIDGET_MODULES,
+  DASHBOARD_WIDGET_PERMISSIONS,
+  resolveDashboardWidgets,
+  widgetEnabledByModules,
   type DashboardWidgetKey,
 } from "@/lib/permissions/workspace-config";
 import { getRequestAuthUser } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit-log";
 import { createAsset, generateAssetCode } from "@/modules/assets/mutations";
 import { getCategoryPrefixForAsset } from "@/modules/categories/actions";
-import { buildReport, getDashboardTiles, listImportJobs, lookupCatalogs } from "./queries";
+import { buildReport, getDashboardWidgetData, listImportJobs, lookupCatalogs } from "./queries";
 import { insertImportJob } from "./mutations";
 import { IMPORT_COLUMNS, exportReportSchema } from "./validation";
 import type {
-  DashboardTile,
+  DashboardHomeWidget,
   ImportFormState,
   ImportJobSummary,
   ImportPreviewRow,
@@ -52,29 +59,43 @@ async function tableToXlsxBase64(table: ReportTable): Promise<string> {
   return buffer.toString("base64");
 }
 
-export async function getDashboardTilesForHome(): Promise<DashboardTile[]> {
-  if (!(await requirePermission("assets", "view"))) {
-    return [];
+export async function getDashboardHome(): Promise<DashboardHomeWidget[]> {
+  const runtime = await getWorkspaceRuntime();
+  const roleId = headers().get(TENANT_HEADERS.roleId);
+  const configured = resolveDashboardWidgets(runtime.widgets, runtime.layouts, roleId);
+
+  const allowed: DashboardWidgetKey[] = [];
+  for (const key of DASHBOARD_WIDGET_KEYS) {
+    const setting = configured[key];
+    if (!setting.enabled) {
+      continue;
+    }
+    if (!widgetEnabledByModules(key, runtime.modules)) {
+      continue;
+    }
+    const permissionModule = DASHBOARD_WIDGET_PERMISSIONS[key];
+    if (permissionModule && !(await requirePermission(permissionModule, "view"))) {
+      continue;
+    }
+    const feature = DASHBOARD_WIDGET_MODULES[key];
+    if (feature && !(await requireModule(feature))) {
+      continue;
+    }
+    allowed.push(key);
   }
-  const [tiles, runtime] = await Promise.all([getDashboardTiles(), getWorkspaceRuntime()]);
-  return tiles
-    .filter((tile) => {
-      const key = tile.id as DashboardWidgetKey;
-      const widget = runtime.widgets[key];
-      if (widget && !widget.enabled) {
-        return false;
-      }
-      const moduleKey = DASHBOARD_WIDGET_MODULES[key];
-      if (moduleKey && !runtime.modules[moduleKey]) {
-        return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      const orderA = runtime.widgets[a.id as DashboardWidgetKey]?.order ?? 0;
-      const orderB = runtime.widgets[b.id as DashboardWidgetKey]?.order ?? 0;
-      return orderA - orderB;
-    });
+
+  const data = await getDashboardWidgetData(allowed);
+  return allowed
+    .sort((a, b) => (configured[a].order ?? 0) - (configured[b].order ?? 0))
+    .map((key) => ({
+      id: key,
+      label: DASHBOARD_WIDGET_LABELS[key],
+      kind: DASHBOARD_WIDGET_KIND[key],
+      size: configured[key].size,
+      href: DASHBOARD_WIDGET_HREFS[key],
+      value: data.values[key] ?? (DASHBOARD_WIDGET_KIND[key] === "stat" ? 0 : null),
+      chart: data.charts[key] ?? [],
+    }));
 }
 
 export async function getAvailableReportKeys(): Promise<ReportKey[]> {

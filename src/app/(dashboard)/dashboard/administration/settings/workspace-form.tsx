@@ -4,13 +4,16 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { FEATURE_MODULE_DESCRIPTIONS, FEATURE_MODULE_LABELS, FEATURE_MODULES } from "@/lib/permissions/feature-catalog";
 import {
   ASSET_FIELD_KEYS,
   ASSET_FIELD_LABELS,
   DASHBOARD_WIDGET_KEYS,
+  DASHBOARD_WIDGET_KIND,
   DASHBOARD_WIDGET_LABELS,
+  DASHBOARD_WIDGET_SIZES,
   WORKFLOW_DESCRIPTIONS,
   WORKFLOW_KEYS,
   WORKFLOW_LABELS,
@@ -20,7 +23,58 @@ import type { CompanyWorkspaceSettings, UpdateWorkspaceSettingsState } from "@/m
 
 const initialState: UpdateWorkspaceSettingsState = { error: null };
 
-export function WorkspaceSettingsForm({ settings }: { settings: CompanyWorkspaceSettings }) {
+function WidgetRows({
+  widgets,
+  namePrefix,
+}: {
+  widgets: Record<string, { enabled: boolean; order: number; size?: "sm" | "md" | "lg" } | undefined>;
+  namePrefix: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      {DASHBOARD_WIDGET_KEYS.map((key) => (
+        <label key={key} className="flex flex-wrap items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name={`${namePrefix}${key}`}
+            defaultChecked={widgets[key]?.enabled !== false}
+          />
+          <span className="min-w-[12rem] flex-1">
+            {DASHBOARD_WIDGET_LABELS[key]}
+            <span className="ml-1 text-xs text-muted-foreground">({DASHBOARD_WIDGET_KIND[key]})</span>
+          </span>
+          <Input
+            name={`${namePrefix}order_${key}`}
+            type="number"
+            className="w-20"
+            defaultValue={widgets[key]?.order ?? 0}
+            aria-label={`${DASHBOARD_WIDGET_LABELS[key]} order`}
+          />
+          <NativeSelect
+            name={`${namePrefix}size_${key}`}
+            className="w-24"
+            defaultValue={widgets[key]?.size ?? (DASHBOARD_WIDGET_KIND[key] === "chart" ? "md" : "sm")}
+            aria-label={`${DASHBOARD_WIDGET_LABELS[key]} size`}
+          >
+            {DASHBOARD_WIDGET_SIZES.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </NativeSelect>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+export function WorkspaceSettingsForm({
+  settings,
+  roles,
+}: {
+  settings: CompanyWorkspaceSettings;
+  roles: { id: string; name: string }[];
+}) {
   const [state, setState] = useState<UpdateWorkspaceSettingsState>(initialState);
   const [isPending, startTransition] = useTransition();
   const planLocked = settings.planModules !== null;
@@ -48,7 +102,7 @@ export function WorkspaceSettingsForm({ settings }: { settings: CompanyWorkspace
         <p className="text-xs text-muted-foreground">Must include {"{SEQ:05d}"}. Category prefixes override this when set.</p>
       </div>
 
-      <section className="flex flex-col gap-3">
+      <section id="modules" className="flex flex-col gap-3 scroll-mt-20">
         <h3 className="text-sm font-medium">Modules</h3>
         {FEATURE_MODULES.map((module) => {
           const lockedOut = planLocked && !allowed.has(module);
@@ -137,26 +191,48 @@ export function WorkspaceSettingsForm({ settings }: { settings: CompanyWorkspace
         </div>
       </section>
 
-      <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">Dashboard widgets</h3>
-        {DASHBOARD_WIDGET_KEYS.map((key) => (
-          <label key={key} className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              name={`widget_${key}`}
-              defaultChecked={settings.dashboardWidgets[key]?.enabled !== false}
-            />
-            <span className="flex-1">{DASHBOARD_WIDGET_LABELS[key]}</span>
-            <Input
-              name={`widget_order_${key}`}
-              type="number"
-              className="w-20"
-              defaultValue={settings.dashboardWidgets[key]?.order ?? 0}
-              aria-label={`${DASHBOARD_WIDGET_LABELS[key]} order`}
-            />
-          </label>
-        ))}
+      <section id="dashboard" className="flex flex-col gap-3 scroll-mt-20">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-medium">Company dashboard</h3>
+            <p className="text-xs text-muted-foreground">
+              Default widgets for Company Admins and roles without a custom layout. Users still only
+              see widgets they are entitled to.
+            </p>
+          </div>
+          <Button type="submit" name="resetDashboard" value="1" variant="outline" size="sm" disabled={isPending}>
+            Reset to default
+          </Button>
+        </div>
+        <WidgetRows widgets={settings.dashboardWidgets} namePrefix="widget_" />
       </section>
+
+      {roles.length > 0 ? (
+        <section className="flex flex-col gap-4">
+          <div>
+            <h3 className="text-sm font-medium">Role dashboards</h3>
+            <p className="text-xs text-muted-foreground">
+              Optional layouts per role. Leave off to inherit the company dashboard.
+            </p>
+          </div>
+          <input type="hidden" name="layoutRoleIds" value={roles.map((role) => role.id).join(",")} />
+          {roles.map((role) => {
+            const custom = settings.dashboardLayouts.roles[role.id];
+            return (
+              <details key={role.id} className="rounded-md border p-3" open={Boolean(custom)}>
+                <summary className="cursor-pointer text-sm font-medium">{role.name}</summary>
+                <label className="mt-3 flex items-center gap-2 text-sm">
+                  <input type="checkbox" name={`role_layout_on_${role.id}`} defaultChecked={Boolean(custom)} />
+                  Use a custom layout for this role
+                </label>
+                <div className="mt-3">
+                  <WidgetRows widgets={custom ?? settings.dashboardWidgets} namePrefix={`role_${role.id}_widget_`} />
+                </div>
+              </details>
+            );
+          })}
+        </section>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2">
         <div className="flex flex-col gap-1.5">

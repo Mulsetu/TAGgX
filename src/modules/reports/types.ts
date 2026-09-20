@@ -66,3 +66,13 @@ export interface DashboardTile {
   value: number;
   href: string;
 }
+
+export interface DashboardHomeWidget {
+  id: string;
+  label: string;
+  kind: "stat" | "chart";
+  size: "sm" | "md" | "lg";
+  href: string;
+  value: number | null;
+  chart: { name: string; value: number }[];
+}

@@ -16,6 +16,7 @@ import type {
   AssetOption,
   CategoryAssetCount,
   DocumentExpiryStatus,
+  LocationAssetCount,
   OwnershipType,
   PublicAsset,
   StatusAssetCount,
@@ -65,6 +66,29 @@ export async function getAssetCountsByCategory(): Promise<CategoryAssetCount[]> 
   return (data as CategoryCountRow[]).map((row) => ({
     categoryId: row.category_id,
     categoryName: row.category_name,
+    count: Number(row.count),
+  }));
+}
+
+interface LocationCountRow {
+  location_id: string | null;
+  location_name: string;
+  count: string;
+}
+
+/** Asset counts grouped by location, for the dashboard chart. */
+export async function getAssetCountsByLocation(): Promise<LocationAssetCount[]> {
+  const supabase = createClient();
+
+  const { data, error } = await supabase.rpc("get_asset_counts_by_location");
+
+  if (error || !data) {
+    return [];
+  }
+
+  return (data as LocationCountRow[]).map((row) => ({
+    locationId: row.location_id,
+    locationName: row.location_name,
     count: Number(row.count),
   }));
 }

@@ -34,8 +34,9 @@ export interface CurrentUser {
   id: string;
   email: string;
   fullName: string | null;
-  companyId: string;
+  companyId: string | null;
   vendorId: string | null;
+  isCompanyAdmin: boolean;
   role: { id: string; name: string } | null;
 }
 
@@ -44,6 +45,7 @@ export interface CompanyUserSummary {
   email: string;
   fullName: string | null;
   isActive: boolean;
+  isCompanyAdmin: boolean;
   roleId: string;
   roleName: string;
   createdAt: string;
@@ -64,4 +66,10 @@ export interface InviteUserFormState {
 
 export interface UserActionState {
   error: string | null;
+}
+
+export interface AccountSignupState {
+  error: string | null;
+  checkEmail?: boolean;
+  redirectPath?: string;
 }

@@ -19,6 +19,10 @@ export const planFormSchema = z.object({
     (value) => (value === "" || value === null || value === undefined ? null : value),
     z.coerce.number().int().min(0).nullable(),
   ),
+  userLimit: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? null : value),
+    z.coerce.number().int().min(1).nullable(),
+  ),
 });
 
 export const assignPlanSchema = z.object({
@@ -42,21 +46,33 @@ export const razorpayPaymentResultSchema = z.object({
   billingOrderId: z.string().uuid().optional(),
 });
 
-export const signupSchema = z
-  .object({
-    planId: z.string().uuid("Choose a plan"),
-    name: z.string().trim().min(1, "Company name is required").max(200),
-    slug: slugSchema,
-    adminEmail: z.string().trim().email("Enter a valid email"),
-    fullName: z
-      .string()
-      .trim()
-      .max(200)
-      .transform((value) => (value.length === 0 ? null : value)),
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    confirmPassword: z.string().min(8),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match.",
-    path: ["confirmPassword"],
-  });
+export const createWorkspaceSchema = z.object({
+  planId: z.string().uuid("Choose a plan"),
+  name: z.string().trim().min(1, "Company name is required").max(200),
+  slug: slugSchema,
+});
+
+export const recordPaymentSchema = z.object({
+  amount: z.coerce.number().int().min(0),
+  currency: z.string().trim().regex(/^[A-Z]{3}$/).default("INR"),
+  paymentMethod: z.enum(["razorpay", "upi", "bank_transfer", "neft", "rtgs", "cash", "cheque", "other"]),
+  paymentStatus: z.enum(["pending", "paid", "failed", "cancelled", "partially_paid", "refunded", "waived"]),
+  referenceNumber: z.string().trim().max(120).optional().nullable(),
+  paymentDate: z.string().trim().min(8).max(10),
+  notes: z.string().trim().max(1000).optional().nullable(),
+  activate: z.boolean().optional(),
+});
+
+export const subscriptionStatusSchema = z.object({
+  status: z.enum([
+    "draft",
+    "trial",
+    "pending_payment",
+    "active",
+    "past_due",
+    "expired",
+    "suspended",
+    "halted",
+    "canceled",
+  ]),
+});

@@ -56,11 +56,13 @@ export const metadata: Metadata = {
     siteName: SITE_NAME,
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
+    images: [{ url: TAGX_LOGO_SRC, alt: `${SITE_NAME} by ${SITE_PARENT}` }],
   },
   twitter: {
     card: "summary_large_image",
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
+    images: [TAGX_LOGO_SRC],
   },
   alternates: {
     canonical: "/",

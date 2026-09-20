@@ -20,6 +20,9 @@ const RESERVED_SLUGS = new Set([
   "pricing",
   "plans",
   "billing",
+  "onboarding",
+  "auth",
+  "verify",
   "demo",
   "inquire",
   "enquiry",
@@ -61,6 +64,7 @@ export const TENANT_HEADERS = {
   companyId: "x-company-id",
   roleId: "x-role-id",
   isSuperAdmin: "x-is-super-admin",
+  isCompanyAdmin: "x-is-company-admin",
 } as const;
 
 export interface ResolvedTenant {

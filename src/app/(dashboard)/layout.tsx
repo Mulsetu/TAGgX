@@ -35,11 +35,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect(tenantLoginPathFromCookie(cookies().get(TENANT_SLUG_COOKIE)?.value) ?? "/");
   }
 
+  const currentUser = await getCurrentUser();
+  if (currentUser && !currentUser.companyId) {
+    redirect("/onboarding");
+  }
+
   const sidebarState = cookies().get("sidebar_state")?.value;
-  const [adminNav, company, currentUser, access] = await Promise.all([
+  const [adminNav, company, access] = await Promise.all([
     getSidebarAdminNav(),
     getCurrentCompany(),
-    getCurrentUser(),
     getTenantAccessState(),
   ]);
 

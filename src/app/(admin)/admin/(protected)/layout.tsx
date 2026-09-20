@@ -16,6 +16,7 @@ const NAV_LINKS = [
   { href: "/admin/leads", label: "Leads" },
   { href: "/admin/plans", label: "Plans" },
   { href: "/admin/orders", label: "Asset orders" },
+  { href: "/admin/payments", label: "Payments" },
   { href: "/admin/storage", label: "Storage usage" },
 ];
 

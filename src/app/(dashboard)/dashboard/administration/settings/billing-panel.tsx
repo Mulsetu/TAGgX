@@ -13,17 +13,30 @@ import {
   requestExtraAssetsAction,
   startPlanPaymentAction,
 } from "@/modules/billing/actions";
-import type { BillingOrder, CompanyAssetQuota, ExtraAssetOrderState } from "@/modules/billing/types";
+import type { BillingOrder, BillingPayment, CompanyAssetQuota, ExtraAssetOrderState, PaymentMethod } from "@/modules/billing/types";
 
 const initialState: ExtraAssetOrderState = { error: null };
+
+const METHOD_LABELS: Record<PaymentMethod, string> = {
+  razorpay: "Razorpay",
+  upi: "UPI",
+  bank_transfer: "Bank transfer",
+  neft: "NEFT",
+  rtgs: "RTGS",
+  cash: "Cash",
+  cheque: "Cheque",
+  other: "Other",
+};
 
 export function BillingPanel({
   quota,
   orders,
+  payments,
   canEdit,
 }: {
   quota: CompanyAssetQuota;
   orders: BillingOrder[];
+  payments: BillingPayment[];
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -124,7 +137,8 @@ export function BillingPanel({
       <div>
         <h2 className="text-base font-semibold">Plan &amp; assets</h2>
         <p className="text-sm text-muted-foreground">
-          Monthly plans and extra asset packs are paid through Razorpay.
+          View your plan, usage, and payment history. Company Admin can complete Razorpay checkout
+          when payment is due. Plan limits and payment records are controlled by TagX.
         </p>
       </div>
 
@@ -193,6 +207,21 @@ export function BillingPanel({
         <p role="alert" className="text-sm text-destructive">
           {state.error}
         </p>
+      ) : null}
+
+      {payments.length > 0 ? (
+        <div className="flex flex-col gap-2 border-t pt-4">
+          <p className="text-sm font-medium">Payment history</p>
+          <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+            {payments.map((payment) => (
+              <li key={payment.id}>
+                {new Date(payment.paymentDate).toLocaleDateString("en-IN")} · {METHOD_LABELS[payment.paymentMethod]} ·{" "}
+                {formatInr(payment.amount)} · {payment.paymentStatus.replaceAll("_", " ")}
+                {payment.referenceNumber ? ` · ${payment.referenceNumber}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {orders.length > 0 ? (

@@ -26,12 +26,14 @@ export const PERMISSION_ACTIONS = [
   "delete",
   "assign",
   "export",
+  "import",
   "approve",
   "transfer",
   "return",
   "dispose",
   "resolve",
   "configure",
+  "manage",
 ] as const;
 export type PermissionAction = (typeof PERMISSION_ACTIONS)[number];
 
@@ -65,12 +67,14 @@ export const ACTION_LABELS: Record<PermissionAction, string> = {
   delete: "Delete",
   assign: "Assign",
   export: "Export",
+  import: "Import",
   approve: "Approve",
   transfer: "Transfer",
   return: "Return",
   dispose: "Dispose",
   resolve: "Resolve",
   configure: "Configure",
+  manage: "Manage",
 };
 
 /**
@@ -84,4 +88,39 @@ export const ACTION_FALLBACKS: Partial<Record<PermissionAction, PermissionAction
   dispose: ["edit"],
   resolve: ["edit"],
   configure: ["edit"],
+  import: ["export", "create"],
+  manage: ["configure", "edit"],
 };
+
+export const AUDITOR_PERMISSIONS: PermissionsMap = {
+  assets: ["view", "export"],
+  audits: ["view", "create", "edit", "export", "approve"],
+  locations: ["view"],
+  categories: ["view"],
+  statuses: ["view"],
+  reports: ["view", "export"],
+  handover: ["view"],
+};
+
+export const TECHNICIAN_PERMISSIONS: PermissionsMap = {
+  assets: ["view", "edit", "assign"],
+  maintenance: ["view", "create", "edit", "assign", "resolve"],
+  locations: ["view"],
+  statuses: ["view"],
+  vendors: ["view"],
+};
+
+export const VIEWER_PERMISSIONS: PermissionsMap = {
+  assets: ["view"],
+  locations: ["view"],
+  categories: ["view"],
+  statuses: ["view"],
+  reports: ["view"],
+};
+
+export type Capability = `${PermissionModule}.${PermissionAction}`;
+
+export function parseCapability(capability: Capability): { module: PermissionModule; action: PermissionAction } {
+  const [module, action] = capability.split(".") as [PermissionModule, PermissionAction];
+  return { module, action };
+}

@@ -13,15 +13,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { toggleUserActiveAction, updateUserRoleAction } from "@/modules/users/actions";
+import { setCompanyAdminAction, toggleUserActiveAction, updateUserRoleAction } from "@/modules/users/actions";
 import type { CompanyUserSummary } from "@/modules/users/types";
 import type { RoleSummary } from "@/modules/roles/types";
 
-function UserRow({ user, roles }: { user: CompanyUserSummary; roles: RoleSummary[] }) {
+function UserRow({
+  user,
+  roles,
+  canManageCompanyAdmins,
+}: {
+  user: CompanyUserSummary;
+  roles: RoleSummary[];
+  canManageCompanyAdmins: boolean;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isRolePending, startRole] = useTransition();
   const [isActivePending, startActive] = useTransition();
+  const [isAdminPending, startAdmin] = useTransition();
 
   function handleRoleChange(roleId: string) {
     setError(null);
@@ -39,6 +48,18 @@ function UserRow({ user, roles }: { user: CompanyUserSummary; roles: RoleSummary
     setError(null);
     startActive(async () => {
       const result = await toggleUserActiveAction(user.id, !user.isActive);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  function handleToggleCompanyAdmin() {
+    setError(null);
+    startAdmin(async () => {
+      const result = await setCompanyAdminAction(user.id, !user.isCompanyAdmin);
       if (result.error) {
         setError(result.error);
         return;
@@ -66,19 +87,39 @@ function UserRow({ user, roles }: { user: CompanyUserSummary; roles: RoleSummary
         </NativeSelect>
       </TableCell>
       <TableCell>
+        {user.isCompanyAdmin ? <Badge>Company Admin</Badge> : null}{" "}
         {user.isActive ? <Badge variant="secondary">Active</Badge> : <Badge variant="outline">Deactivated</Badge>}
       </TableCell>
-      <TableCell>
+      <TableCell className="flex flex-wrap gap-2">
         <Button type="button" variant="outline" size="sm" disabled={isActivePending} onClick={handleToggleActive}>
           {isActivePending ? "Saving..." : user.isActive ? "Deactivate" : "Reactivate"}
         </Button>
-        {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
+        {canManageCompanyAdmins ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={isAdminPending}
+            onClick={handleToggleCompanyAdmin}
+          >
+            {isAdminPending ? "Saving..." : user.isCompanyAdmin ? "Revoke admin" : "Make Company Admin"}
+          </Button>
+        ) : null}
+        {error ? <p className="mt-1 w-full text-xs text-destructive">{error}</p> : null}
       </TableCell>
     </TableRow>
   );
 }
 
-export function UserList({ users, roles }: { users: CompanyUserSummary[]; roles: RoleSummary[] }) {
+export function UserList({
+  users,
+  roles,
+  canManageCompanyAdmins,
+}: {
+  users: CompanyUserSummary[];
+  roles: RoleSummary[];
+  canManageCompanyAdmins: boolean;
+}) {
   return (
     <div className="overflow-x-auto rounded-lg border">
       <Table>
@@ -99,7 +140,14 @@ export function UserList({ users, roles }: { users: CompanyUserSummary[]; roles:
               </TableCell>
             </TableRow>
           ) : (
-            users.map((user) => <UserRow key={user.id} user={user} roles={roles} />)
+            users.map((user) => (
+              <UserRow
+                key={user.id}
+                user={user}
+                roles={roles}
+                canManageCompanyAdmins={canManageCompanyAdmins}
+              />
+            ))
           )}
         </TableBody>
       </Table>

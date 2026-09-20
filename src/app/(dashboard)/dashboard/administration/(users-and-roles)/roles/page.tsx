@@ -12,8 +12,9 @@ export default async function RolesPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Rules &amp; Permissions</h1>
         <p className="text-sm text-muted-foreground">
-          Create roles and control exactly what each one can do. The default Admin role is
-          read-only — it always has full access so the company can never lock itself out.
+          Create custom roles and control exactly what each one can do. Company Admin access is
+          independent of this matrix — changing role permissions cannot lock a Company Admin out
+          of the workspace.
         </p>
       </div>
 

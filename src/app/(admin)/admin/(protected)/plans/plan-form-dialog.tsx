@@ -180,6 +180,18 @@ export function PlanFormDialog({
               />
             </div>
             <div className="flex flex-col gap-1.5">
+              <Label htmlFor="userLimit">User limit</Label>
+              <Input
+                id="userLimit"
+                name="userLimit"
+                type="number"
+                min={1}
+                step={1}
+                defaultValue={plan?.userLimit ?? ""}
+                placeholder="Unlimited"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="storageLimitGb">Storage (GiB)</Label>
               <Input
                 id="storageLimitGb"

@@ -31,7 +31,7 @@ import {
   PERMISSION_MODULES,
 } from "@/lib/permissions/taxonomy";
 import type { PermissionAction, PermissionModule, PermissionsMap } from "@/lib/permissions/taxonomy";
-import { deleteRoleAction, updateRolePermissionsAction } from "@/modules/roles/actions";
+import { deleteRoleAction, duplicateRoleAction, updateRolePermissionsAction } from "@/modules/roles/actions";
 import type { RoleSummary } from "@/modules/roles/types";
 
 interface RoleEditorProps {
@@ -61,6 +61,7 @@ export function RoleEditor({ roles: initialRoles }: RoleEditorProps) {
   const [error, setError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, startDelete] = useTransition();
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
   // module/action below are always drawn from the fixed PermissionModule /
   // PermissionAction unions (via ROWS, PERMISSION_MODULES, etc.), never
@@ -72,7 +73,7 @@ export function RoleEditor({ roles: initialRoles }: RoleEditorProps) {
   }
 
   async function toggle(role: RoleSummary, module: PermissionModule, action: PermissionAction) {
-    // The seeded "Admin" role always keeps full access — never editable —
+    // The seeded Company Admin role always keeps full access — never editable —
     // so a company can never accidentally lock itself out of its own
     // workspace. Enforced here (button disabled) and, more importantly,
     // server-side in updateRolePermissionsAction.
@@ -122,6 +123,20 @@ export function RoleEditor({ roles: initialRoles }: RoleEditorProps) {
     });
   }
 
+  function handleDuplicate(role: RoleSummary) {
+    setError(null);
+    setDuplicatingId(role.id);
+    startDelete(async () => {
+      const result = await duplicateRoleAction(role.id);
+      setDuplicatingId(null);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   if (roles.length === 0) {
     return <p className="text-sm text-muted-foreground">No roles yet — create one to get started.</p>;
   }
@@ -148,41 +163,53 @@ export function RoleEditor({ roles: initialRoles }: RoleEditorProps) {
                   <div className="flex flex-col items-center gap-1">
                     <span className="flex items-center gap-1.5">
                       {role.name}
-                      {role.isSystem ? <Badge variant="secondary">Default</Badge> : null}
+                      {role.isSystem ? <Badge variant="secondary">Company Admin</Badge> : null}
                     </span>
-                    {role.isSystem ? (
-                      <span className="text-xs font-normal text-muted-foreground">Read-only</span>
-                    ) : (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs">
-                            Delete
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete the {role.name} role?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This can&apos;t be undone. You can&apos;t delete a role while any user is
-                              still assigned to it.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={(e) => {
-                                e.preventDefault();
-                                handleDelete(role);
-                              }}
-                              disabled={isDeleting}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              {isDeleting ? "Deleting..." : "Delete"}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        disabled={duplicatingId === role.id || isDeleting}
+                        onClick={() => handleDuplicate(role)}
+                      >
+                        {duplicatingId === role.id ? "Copying..." : "Duplicate"}
+                      </Button>
+                      {role.isSystem ? (
+                        <span className="text-xs font-normal text-muted-foreground">Full access</span>
+                      ) : (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button type="button" variant="ghost" size="sm" className="h-6 px-2 text-xs">
+                              Delete
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete the {role.name} role?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This can&apos;t be undone. You can&apos;t delete a role while any user is
+                                still assigned to it.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleDelete(role);
+                                }}
+                                disabled={isDeleting}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                {isDeleting ? "Deleting..." : "Delete"}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </div>
                   </div>
                 </TableHead>
               ))}

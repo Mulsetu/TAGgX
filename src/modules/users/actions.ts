@@ -11,19 +11,31 @@ import { getCompanyBySlug, getCompanySuspendedAt } from "@/modules/companies/que
 import { createCompanyInvite } from "@/modules/companies/mutations";
 import { getCurrentCompany } from "@/modules/companies/actions";
 import { checkSuperAdmin, isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
-import { requirePermission } from "@/lib/permissions/has-permission";
+import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { sendUserInviteEmail } from "@/lib/email";
+import { writeAuditLog } from "@/lib/audit-log";
+import { getSiteUrl } from "@/lib/site";
+import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/queries";
 import {
+  accountSignupSchema,
   forgotPasswordSchema,
   inviteUserSchema,
   resetPasswordSchema,
   signInSchema,
 } from "./validation";
 import { getInviteByToken, getUserWithRole, listCompanyUsers, listPendingInvites } from "./queries";
-import { acceptCompanyInvite, setUserActive, updateUserRole } from "./mutations";
+import {
+  acceptCompanyInvite,
+  countCompanyAdmins,
+  insertOnboardingUser,
+  setUserActive,
+  setUserCompanyAdmin,
+  updateUserRole,
+} from "./mutations";
 import type {
   AcceptInviteState,
+  AccountSignupState,
   CompanyUserSummary,
   CurrentUser,
   ForgotPasswordState,
@@ -90,9 +102,14 @@ export async function signIn(
     .from("users")
     .select("company_id, is_active")
     .eq("id", authData.user.id)
-    .maybeSingle<{ company_id: string; is_active: boolean }>();
+    .maybeSingle<{ company_id: string | null; is_active: boolean }>();
 
-  if (!profile || profile.company_id !== company.id) {
+  if (!profile?.company_id) {
+    await supabase.auth.signOut();
+    return { error: "Finish creating your workspace before signing in here." };
+  }
+
+  if (profile.company_id !== company.id) {
     await supabase.auth.signOut();
     return { error: "No account was found for this company." };
   }
@@ -157,6 +174,103 @@ export async function signInSuperAdmin(
   }
 
   return { error: null, redirectPath: "/admin" };
+}
+
+/**
+ * Public self-serve: create an auth account only. Company, plan, and
+ * payment happen after email verification on /onboarding.
+ */
+export async function signupAccountAction(
+  _prevState: AccountSignupState,
+  formData: FormData,
+): Promise<AccountSignupState> {
+  const ip = clientIpFromHeaders(headers());
+  if (!consumeRateLimit(`account-signup:${ip}`, 5, 60 * 60 * 1000)) {
+    return { error: "Too many signup attempts. Try again later." };
+  }
+
+  const parsed = accountSignupSchema.safeParse({
+    fullName: formData.get("fullName"),
+    email: formData.get("email"),
+    password: formData.get("password"),
+    confirmPassword: formData.get("confirmPassword"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const planIdRaw = formData.get("planId");
+  if (typeof planIdRaw === "string" && planIdRaw.length > 0) {
+    cookies().set("tagx-signup-plan", planIdRaw, {
+      path: "/",
+      sameSite: "lax",
+      httpOnly: true,
+      maxAge: 60 * 60 * 24,
+    });
+  }
+
+  const supabase = createClient();
+  const { data, error } = await supabase.auth.signUp({
+    email: parsed.data.email,
+    password: parsed.data.password,
+    options: {
+      emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/onboarding`,
+      data: { full_name: parsed.data.fullName },
+    },
+  });
+
+  if (error || !data.user) {
+    const message = (error?.message ?? "").toLowerCase();
+    if (message.includes("already") || message.includes("registered")) {
+      return { error: "An account with this email already exists. Please sign in or reset your password." };
+    }
+    return { error: error?.message ?? "Could not create your account." };
+  }
+
+  const profile = await insertOnboardingUser({
+    userId: data.user.id,
+    email: parsed.data.email,
+    fullName: parsed.data.fullName,
+  });
+  if ("error" in profile && !profile.error.includes("already exists")) {
+    return { error: profile.error };
+  }
+
+  if (data.session && data.user.email_confirmed_at) {
+    return { error: null, redirectPath: "/onboarding" };
+  }
+
+  return { error: null, checkEmail: true };
+}
+
+/** Auth email-confirm callback. Returns the in-app path to send the user to. */
+export async function completeEmailCallbackAction(code: string, nextRaw: string | null): Promise<string> {
+  const supabase = createClient();
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    return "/signup?error=confirm";
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user?.email) {
+    return "/signup";
+  }
+
+  let profile = await getUserWithRole(user.id);
+  if (!profile) {
+    const fullName =
+      typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : null;
+    await insertOnboardingUser({ userId: user.id, email: user.email, fullName });
+    profile = await getUserWithRole(user.id);
+  }
+
+  if (profile?.companyId) {
+    return "/dashboard";
+  }
+
+  return safePostLoginPath(nextRaw ?? undefined) ?? "/onboarding";
 }
 
 /** The signed-in caller's own profile, for rendering the top bar/user menu. */
@@ -386,6 +500,17 @@ export async function inviteCompanyUserAction(
     return { error: "Could not determine your company." };
   }
 
+  const subscription = await getSubscriptionForCompany(company.id);
+  const plan = subscription ? await getPlanById(subscription.planId) : null;
+  if (plan?.userLimit) {
+    const [members, pending] = await Promise.all([listCompanyUsers(), listPendingInvites()]);
+    const seats =
+      members.filter((member) => member.isActive).length + pending.filter((invite) => !invite.isExpired).length;
+    if (seats >= plan.userLimit) {
+      return { error: `This plan allows ${plan.userLimit} users. Upgrade the plan or deactivate unused accounts.` };
+    }
+  }
+
   const inviteKey = `invite:${company.id}:${clientIpFromHeaders(headers())}`;
   if (!consumeRateLimit(inviteKey, 10, 60 * 60 * 1000)) {
     return { error: "Too many invites. Try again later." };
@@ -427,6 +552,13 @@ export async function inviteCompanyUserAction(
 
   revalidatePath("/dashboard/administration/users");
 
+  await writeAuditLog({
+    action: "user.invited",
+    entityType: "company_invite",
+    companyId: company.id,
+    newValues: { email: parsed.data.email, roleId: parsed.data.roleId },
+  });
+
   const isProd = process.env.NODE_ENV === "production";
   const showLinkDirectly = !isProd || "error" in emailResult;
 
@@ -448,6 +580,14 @@ export async function updateUserRoleAction(userId: string, roleId: string): Prom
   }
 
   const result = await updateUserRole(userId, roleId);
+  if (!result.error) {
+    await writeAuditLog({
+      action: "user.role_changed",
+      entityType: "user",
+      entityId: userId,
+      newValues: { roleId },
+    });
+  }
   revalidatePath("/dashboard/administration/users");
   return result;
 }
@@ -469,7 +609,67 @@ export async function toggleUserActiveAction(userId: string, isActive: boolean):
     return { error: "You can't deactivate your own account." };
   }
 
+  const supabaseAdminCheck = createClient();
+  const { data: target } = await supabaseAdminCheck
+    .from("users")
+    .select("is_company_admin")
+    .eq("id", userId)
+    .maybeSingle<{ is_company_admin: boolean }>();
+  if (!isActive && target?.is_company_admin) {
+    const remaining = await countCompanyAdmins();
+    if (remaining <= 1) {
+      return { error: "Keep at least one Company Admin active." };
+    }
+  }
+
   const result = await setUserActive(userId, isActive);
+  if (!result.error) {
+    await writeAuditLog({
+      action: isActive ? "user.activated" : "user.deactivated",
+      entityType: "user",
+      entityId: userId,
+    });
+  }
+  revalidatePath("/dashboard/administration/users");
+  return result;
+}
+
+export async function setCompanyAdminAction(userId: string, isCompanyAdmin: boolean): Promise<UserActionState> {
+  if (!(await requireWritableTenant())) {
+    return { error: TENANT_READ_ONLY_MESSAGE };
+  }
+  if (!(await requirePermission("users", "manage")) && !(await requirePermission("users", "edit"))) {
+    return { error: "You don't have permission to edit users." };
+  }
+  if (!(await isCurrentUserCompanyAdmin()) && !(await isCurrentUserSuperAdmin())) {
+    return { error: "Only a Company Admin can grant this access." };
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user: currentUser },
+  } = await supabase.auth.getUser();
+
+  if (!isCompanyAdmin && currentUser?.id === userId) {
+    const remaining = await countCompanyAdmins();
+    if (remaining <= 1) {
+      return { error: "Keep at least one Company Admin." };
+    }
+  }
+
+  if (!isCompanyAdmin) {
+    const remaining = await countCompanyAdmins();
+    const { data: target } = await supabase
+      .from("users")
+      .select("is_company_admin")
+      .eq("id", userId)
+      .maybeSingle<{ is_company_admin: boolean }>();
+    if (target?.is_company_admin && remaining <= 1) {
+      return { error: "Keep at least one Company Admin." };
+    }
+  }
+
+  const result = await setUserCompanyAdmin(userId, isCompanyAdmin);
   revalidatePath("/dashboard/administration/users");
   return result;
 }

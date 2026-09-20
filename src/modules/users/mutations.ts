@@ -32,12 +32,29 @@ export async function acceptCompanyInvite(params: AcceptCompanyInviteParams): Pr
     return { error: authError?.message ?? "Could not create your account." };
   }
 
+  const { data: role } = await supabase
+    .from("roles")
+    .select("is_system, name")
+    .eq("id", params.roleId)
+    .maybeSingle<{ is_system: boolean; name: string }>();
+
+  const { count: adminCount } = await supabase
+    .from("users")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", params.companyId)
+    .eq("is_company_admin", true);
+
+  const isCompanyAdmin =
+    (role?.is_system === true && (role.name === "Company Admin" || role.name === "Admin")) ||
+    (adminCount ?? 0) === 0;
+
   const { error: profileError } = await supabase.from("users").insert({
     id: authData.user.id,
     company_id: params.companyId,
     role_id: params.roleId,
     email: params.email,
     vendor_id: params.vendorId ?? null,
+    is_company_admin: isCompanyAdmin,
   });
 
   if (profileError) {
@@ -93,6 +110,7 @@ export async function createCompanyAdminAccount(
     role_id: params.roleId,
     email: params.email,
     full_name: params.fullName,
+    is_company_admin: true,
   });
 
   if (profileError) {
@@ -107,6 +125,50 @@ export async function createCompanyAdminAccount(
 }
 
 export type UserMutationResult = { error: string | null };
+
+export async function insertOnboardingUser(input: {
+  userId: string;
+  email: string;
+  fullName: string | null;
+}): Promise<AcceptInviteResult> {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("users").insert({
+    id: input.userId,
+    company_id: null,
+    role_id: null,
+    email: input.email,
+    full_name: input.fullName,
+    is_company_admin: false,
+  });
+  if (error) {
+    if (error.code === "23505") {
+      return { error: "An account with this email already exists. Please sign in or reset your password." };
+    }
+    return { error: "Could not finish setting up your account." };
+  }
+  return { userId: input.userId };
+}
+
+export async function attachUserToCompany(input: {
+  userId: string;
+  companyId: string;
+  roleId: string;
+  isCompanyAdmin: boolean;
+}): Promise<UserMutationResult> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("users")
+    .update({
+      company_id: input.companyId,
+      role_id: input.roleId,
+      is_company_admin: input.isCompanyAdmin,
+    })
+    .eq("id", input.userId);
+  if (error) {
+    return { error: "Could not attach this account to the workspace." };
+  }
+  return { error: null };
+}
 
 /**
  * Deactivating rather than deleting: keeps the row (and its history —
@@ -136,4 +198,23 @@ export async function updateUserRole(userId: string, roleId: string): Promise<Us
   }
 
   return { error: null };
+}
+
+export async function setUserCompanyAdmin(userId: string, isCompanyAdmin: boolean): Promise<UserMutationResult> {
+  const supabase = createClient();
+  const { error } = await supabase.from("users").update({ is_company_admin: isCompanyAdmin }).eq("id", userId);
+  if (error) {
+    return { error: "Could not update company admin access." };
+  }
+  return { error: null };
+}
+
+export async function countCompanyAdmins(): Promise<number> {
+  const supabase = createClient();
+  const { count } = await supabase
+    .from("users")
+    .select("id", { count: "exact", head: true })
+    .eq("is_company_admin", true)
+    .eq("is_active", true);
+  return count ?? 0;
 }

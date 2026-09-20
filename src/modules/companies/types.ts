@@ -51,7 +51,8 @@ export interface CompanyWorkspaceSettings {
   enabledModules: Record<string, boolean>;
   planModules: string[] | null;
   assetFieldConfig: Record<string, { enabled: boolean; required: boolean; label: string; order: number }>;
-  dashboardWidgets: Record<string, { enabled: boolean; order: number }>;
+  dashboardWidgets: Record<string, { enabled: boolean; order: number; size: "sm" | "md" | "lg" }>;
+  dashboardLayouts: { roles: Record<string, Record<string, { enabled: boolean; order: number; size: "sm" | "md" | "lg" }>> };
   workflowConfig: Record<string, boolean>;
   departments: string[];
   disposalMethods: string[];

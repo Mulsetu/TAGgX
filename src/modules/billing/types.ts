@@ -1,4 +1,42 @@
-export type SubscriptionStatus = "pending_payment" | "active" | "past_due" | "halted" | "canceled";
+export type SubscriptionStatus =
+  | "draft"
+  | "trial"
+  | "pending_payment"
+  | "active"
+  | "past_due"
+  | "expired"
+  | "suspended"
+  | "halted"
+  | "canceled";
+
+export type SubscriptionType =
+  | "self_service"
+  | "sales_assisted"
+  | "demo"
+  | "trial"
+  | "enterprise"
+  | "complimentary";
+
+export type BillingCycle = "monthly" | "yearly" | "custom";
+
+export type PaymentMethod =
+  | "razorpay"
+  | "upi"
+  | "bank_transfer"
+  | "neft"
+  | "rtgs"
+  | "cash"
+  | "cheque"
+  | "other";
+
+export type PaymentStatus =
+  | "pending"
+  | "paid"
+  | "failed"
+  | "cancelled"
+  | "partially_paid"
+  | "refunded"
+  | "waived";
 
 export interface BillingPlan {
   id: string;
@@ -15,6 +53,7 @@ export interface BillingPlan {
   /** Null means every module is available on this plan. */
   includedModules: string[] | null;
   storageLimitBytes: number | null;
+  userLimit: number | null;
 }
 
 export interface CompanySubscription {
@@ -23,6 +62,13 @@ export interface CompanySubscription {
   planId: string;
   extraAssets: number;
   status: SubscriptionStatus;
+  subscriptionType: SubscriptionType;
+  billingCycle: BillingCycle;
+  startsAt: string;
+  endsAt: string | null;
+  trialStartsAt: string | null;
+  trialEndsAt: string | null;
+  autoRenew: boolean;
   razorpayCustomerId: string | null;
   razorpaySubscriptionId: string | null;
   paymentConfirmToken: string | null;
@@ -49,6 +95,10 @@ export interface CompanyBillingSnapshot {
   assetCount: number;
   pendingOrderCount: number;
   subscriptionStatus: SubscriptionStatus | null;
+  subscriptionType: SubscriptionType | null;
+  billingCycle: BillingCycle | null;
+  startsAt: string | null;
+  endsAt: string | null;
 }
 
 export interface BillingOrder {
@@ -111,4 +161,41 @@ export interface ConfirmPaymentState {
   error: string | null;
   success?: boolean;
   redirectPath?: string;
+}
+
+export interface BillingPayment {
+  id: string;
+  companyId: string;
+  subscriptionId: string | null;
+  amount: number;
+  currency: string;
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  referenceNumber: string | null;
+  paymentDate: string;
+  provider: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export interface RecordPaymentState {
+  error: string | null;
+  success?: boolean;
+}
+
+export interface SubscriptionActionState {
+  error: string | null;
+  success?: boolean;
+}
+
+export interface AccountSignupState {
+  error: string | null;
+  checkEmail?: boolean;
+  redirectPath?: string;
+}
+
+export interface CreateWorkspaceState {
+  error: string | null;
+  redirectPath?: string;
+  checkout?: RazorpayCheckoutSession;
 }

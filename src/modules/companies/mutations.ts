@@ -243,6 +243,7 @@ export async function upsertCompanyWorkspaceSettings(
     enabledModules: Record<string, boolean>;
     assetFieldConfig: Record<string, unknown>;
     dashboardWidgets: Record<string, unknown>;
+    dashboardLayouts: unknown;
     workflowConfig: Record<string, unknown>;
     departmentCatalog: string[];
     disposalMethods: string[];
@@ -256,6 +257,7 @@ export async function upsertCompanyWorkspaceSettings(
       enabled_modules: input.enabledModules,
       asset_field_config: input.assetFieldConfig,
       dashboard_widgets: input.dashboardWidgets,
+      dashboard_layouts: input.dashboardLayouts,
       workflow_config: input.workflowConfig,
       department_catalog: input.departmentCatalog,
       disposal_methods: input.disposalMethods,
