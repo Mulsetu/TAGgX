@@ -70,10 +70,15 @@ const LOCATION_SELECT =
 export async function listLocations(): Promise<LocationSummary[]> {
   const supabase = createClient();
 
+  // Explicit cap: PostgREST's own default row limit is a project setting,
+  // not something this code should depend on silently. withPaths() below
+  // needs every ancestor present to build a location's full path, so this
+  // must stay well above any realistic per-company location count.
   const { data, error } = await supabase
     .from("locations")
     .select(LOCATION_SELECT)
     .order("name")
+    .limit(5000)
     .returns<LocationRow[]>();
 
   if (error || !data) {

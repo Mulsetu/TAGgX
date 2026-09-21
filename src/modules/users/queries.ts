@@ -119,10 +119,15 @@ interface CompanyUserRow {
 export async function listCompanyUsers(): Promise<CompanyUserSummary[]> {
   const supabase = createClient();
 
+  // Explicit cap rather than relying on PostgREST's own default row limit:
+  // that default is a project-level setting, so without this the list
+  // would silently stop growing at whatever that happens to be configured
+  // to, with no error and no indication anything was cut off.
   const { data, error } = await supabase
     .from("users")
     .select("id, email, full_name, is_active, is_company_admin, role_id, created_at, roles(name)")
     .order("created_at")
+    .limit(1000)
     .returns<CompanyUserRow[]>();
 
   if (error) {
@@ -130,6 +135,7 @@ export async function listCompanyUsers(): Promise<CompanyUserSummary[]> {
       .from("users")
       .select("id, email, full_name, is_active, role_id, created_at, roles(name)")
       .order("created_at")
+      .limit(1000)
       .returns<Omit<CompanyUserRow, "is_company_admin">[]>();
     return (fallback.data ?? []).map((row) => ({
       id: row.id,

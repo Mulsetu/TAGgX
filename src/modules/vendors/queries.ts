@@ -14,10 +14,13 @@ interface VendorRow {
 
 export async function listVendors(): Promise<VendorSummary[]> {
   const supabase = createClient();
+  // Explicit cap: PostgREST's own default row limit is a project setting,
+  // not something this code should depend on silently.
   const { data } = await supabase
     .from("vendors")
     .select("id, name, company_name, contact_name, email, phone, is_active")
     .order("name")
+    .limit(1000)
     .returns<VendorRow[]>();
 
   return (data ?? []).map((row) => ({

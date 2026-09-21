@@ -4,6 +4,7 @@ import "server-only";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { TENANT_HEADERS } from "@/lib/tenant";
+import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { isCurrentUserCompanyAdmin, requirePermission, getCurrentUserPermissions, hasPermission } from "@/lib/permissions/has-permission";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
@@ -37,6 +38,11 @@ export async function createRoleAction(
   const companyId = headers().get(TENANT_HEADERS.companyId);
   if (!companyId) {
     return { error: "Could not determine your company." };
+  }
+
+  const roleCreateKey = `role-create:${companyId}:${clientIpFromHeaders(headers())}`;
+  if (!consumeRateLimit(roleCreateKey, 30, 60 * 60 * 1000)) {
+    return { error: "Too many roles created. Try again later." };
   }
 
   const parsed = createRoleSchema.safeParse({

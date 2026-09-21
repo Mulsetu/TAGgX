@@ -171,15 +171,40 @@ export async function attachUserToCompany(input: {
 }
 
 /**
+ * Undoes attachUserToCompany. `users.company_id` is `on delete cascade`
+ * against `companies` (see 0006_users.sql), so deleting a company while
+ * the caller's own `public.users` row still points at it — e.g. a later
+ * onboarding step failing after attachUserToCompany already ran — would
+ * take the account down with it: no company, no profile row,
+ * getCurrentUser() starts returning null, and there's no signup path back
+ * in since the auth.users email already exists. Call this before
+ * deleteCompany() in any onboarding rollback so the account survives and
+ * the user lands back on /onboarding to try again.
+ */
+export async function detachUserFromCompany(userId: string): Promise<UserMutationResult> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("users")
+    .update({ company_id: null, role_id: null, is_company_admin: false })
+    .eq("id", userId);
+  if (error) {
+    return { error: "Could not roll back the workspace attempt." };
+  }
+  return { error: null };
+}
+
+/**
  * Deactivating rather than deleting: keeps the row (and its history —
  * asset assignments, maintenance tickets, audit log actor references)
- * intact, just blocks sign-in. RLS's `users_tenant_isolation` scopes this
- * to the caller's own company already.
+ * intact, just blocks sign-in. Runs through the set_user_active() RPC
+ * (migration 0048) rather than a direct table update — it re-checks
+ * users.edit permission and tenant scope at the database layer, since
+ * RLS on `users` no longer grants authenticated a column-level UPDATE.
  */
 export async function setUserActive(userId: string, isActive: boolean): Promise<UserMutationResult> {
   const supabase = createClient();
 
-  const { error } = await supabase.from("users").update({ is_active: isActive }).eq("id", userId);
+  const { error } = await supabase.rpc("set_user_active", { p_user_id: userId, p_is_active: isActive });
 
   if (error) {
     return { error: "Could not update this member." };
@@ -191,7 +216,7 @@ export async function setUserActive(userId: string, isActive: boolean): Promise<
 export async function updateUserRole(userId: string, roleId: string): Promise<UserMutationResult> {
   const supabase = createClient();
 
-  const { error } = await supabase.from("users").update({ role_id: roleId }).eq("id", userId);
+  const { error } = await supabase.rpc("update_user_role", { p_user_id: userId, p_role_id: roleId });
 
   if (error) {
     return { error: "Could not update this member's role." };
@@ -202,7 +227,10 @@ export async function updateUserRole(userId: string, roleId: string): Promise<Us
 
 export async function setUserCompanyAdmin(userId: string, isCompanyAdmin: boolean): Promise<UserMutationResult> {
   const supabase = createClient();
-  const { error } = await supabase.from("users").update({ is_company_admin: isCompanyAdmin }).eq("id", userId);
+  const { error } = await supabase.rpc("set_company_admin", {
+    p_user_id: userId,
+    p_is_company_admin: isCompanyAdmin,
+  });
   if (error) {
     return { error: "Could not update company admin access." };
   }

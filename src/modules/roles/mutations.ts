@@ -33,22 +33,22 @@ export async function updateRolePermissions(
 ): Promise<RoleMutationResult> {
   const supabase = createClient();
 
-  // is_system = false in the filter, not just the UI: the seeded "Admin"
-  // role always keeps full access so a company can never lock itself out,
-  // regardless of what a tampered client request claims.
-  const { data, error } = await supabase
-    .from("roles")
-    .update({ permissions })
-    .eq("id", roleId)
-    .eq("is_system", false)
-    .select("id")
-    .single<{ id: string }>();
+  // Runs through the update_role_permissions() RPC (migration 0048), not a
+  // direct table update: RLS no longer grants authenticated a column-level
+  // UPDATE on `permissions`, and the RPC re-checks is_system = false and
+  // roles.edit permission itself — the seeded "Admin" role always keeps
+  // full access so a company can never lock itself out, regardless of
+  // what a tampered client request claims.
+  const { error } = await supabase.rpc("update_role_permissions", {
+    p_role_id: roleId,
+    p_permissions: permissions,
+  });
 
-  if (error || !data) {
+  if (error) {
     return { error: "Could not update permissions — the Company Admin role can't be changed." };
   }
 
-  return { id: data.id };
+  return { id: roleId };
 }
 
 export async function deleteRole(roleId: string): Promise<{ error: string | null }> {
@@ -140,32 +140,26 @@ export async function seedDefaultCompanyRoles(companyId: string): Promise<{ erro
   return { error: null };
 }
 
+/**
+ * Copies a source role's permissions onto a new row via the
+ * duplicate_role() RPC (migration 0048): an insert grant covering
+ * `permissions` directly would let any authenticated caller POST a role
+ * with any permissions they like, so the copy happens server-side, where
+ * the source role's company and the caller's roles.create permission are
+ * both re-checked first. `companyId` isn't needed here — the RPC scopes
+ * the insert to the caller's own company.
+ */
 export async function duplicateRole(
-  companyId: string,
+  _companyId: string,
   sourceRoleId: string,
   name: string,
 ): Promise<RoleMutationResult> {
   const supabase = createClient();
-  const { data: source, error: sourceError } = await supabase
-    .from("roles")
-    .select("permissions, description")
-    .eq("id", sourceRoleId)
-    .maybeSingle<{ permissions: PermissionsMap; description: string | null }>();
 
-  if (sourceError || !source) {
-    return { error: "Could not copy this role." };
-  }
-
-  const { data, error } = await supabase
-    .from("roles")
-    .insert({
-      company_id: companyId,
-      name,
-      description: source.description,
-      permissions: source.permissions ?? {},
-    })
-    .select("id")
-    .single<{ id: string }>();
+  const { data, error } = await supabase.rpc("duplicate_role", {
+    p_source_role_id: sourceRoleId,
+    p_name: name,
+  });
 
   if (error || !data) {
     return {
@@ -173,5 +167,5 @@ export async function duplicateRole(
     };
   }
 
-  return { id: data.id };
+  return { id: data as string };
 }

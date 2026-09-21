@@ -502,6 +502,11 @@ export async function createAssetAction(
     return { error: "Could not determine your company." };
   }
 
+  const assetCreateKey = `asset-create:${companyId}:${clientIpFromHeaders(headers())}`;
+  if (!consumeRateLimit(assetCreateKey, 120, 60 * 60 * 1000)) {
+    return { error: "Too many assets created. Try again later." };
+  }
+
   const quota = await assertCanCreateAsset();
   if ("error" in quota) {
     return { error: quota.error };

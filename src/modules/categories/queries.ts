@@ -21,10 +21,13 @@ interface CategoryRow {
 export async function listCategories(): Promise<CategorySummary[]> {
   const supabase = createClient();
 
+  // Explicit cap: PostgREST's own default row limit is a project setting,
+  // not something this code should depend on silently.
   const { data, error } = await supabase
     .from("asset_categories")
     .select("id, name, description, parent_category_id, code_prefix, is_active, default_status_id, default_condition_key, created_at, parent:asset_categories!parent_category_id(name)")
     .order("name")
+    .limit(1000)
     .returns<CategoryRow[]>();
 
   if (error || !data) {

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { generateDuePlanTickets } from "@/modules/maintenance/scheduler";
 import { sendPendingStorageWarningEmails } from "@/modules/email/actions";
 import { runScheduledReminders } from "@/modules/email/scheduler";
@@ -11,8 +12,15 @@ function isAuthorized(request: Request): boolean {
   if (!secret) {
     return false;
   }
-  const header = request.headers.get("authorization");
-  return header === `Bearer ${secret}`;
+  const header = request.headers.get("authorization") ?? "";
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const received = Buffer.from(header);
+  // Same-length check before timingSafeEqual: it throws (rather than
+  // returning false) on mismatched buffer lengths, which the length check
+  // itself doesn't leak anything sensitive about (the secret's length
+  // isn't secret — CRON_SECRET is an operator-set env var, not derived
+  // from user input).
+  return expected.length === received.length && timingSafeEqual(expected, received);
 }
 
 export async function POST(request: Request) {

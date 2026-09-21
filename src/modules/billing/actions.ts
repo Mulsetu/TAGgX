@@ -20,7 +20,7 @@ import { getCompanyById, getCompanyBySlug } from "@/modules/companies/queries";
 import { createSystemAdminRole, seedDefaultCompanyRoles } from "@/modules/roles/mutations";
 import { seedDefaultAssetStatuses } from "@/modules/statuses/mutations";
 import { seedDefaultAssetConditions } from "@/modules/conditions/mutations";
-import { attachUserToCompany } from "@/modules/users/mutations";
+import { attachUserToCompany, detachUserFromCompany } from "@/modules/users/mutations";
 import { getUserWithRole } from "@/modules/users/queries";
 import { uploadFileToR2 } from "@/modules/storage/mutations";
 import { parsePlanModules } from "@/lib/permissions/feature-catalog";
@@ -578,7 +578,15 @@ export async function createWorkspaceForCurrentUserAction(
   }
 
   const companyId = companyResult.id;
+  let userAttached = false;
+  // If attachUserToCompany already ran, detach first: users.company_id
+  // cascades on company delete, and deleting the company while the
+  // caller's own profile row still points at it would delete that row
+  // too, stranding the account (see detachUserFromCompany's doc comment).
   const rollback = async () => {
+    if (userAttached) {
+      await detachUserFromCompany(user.id);
+    }
     await deleteCompany(companyId);
   };
 
@@ -618,6 +626,7 @@ export async function createWorkspaceForCurrentUserAction(
     await rollback();
     return { error: attached.error };
   }
+  userAttached = true;
 
   const paidPlan = plan.priceMonthly > 0;
   const subResult = await upsertCompanySubscription(companyId, plan.id, {

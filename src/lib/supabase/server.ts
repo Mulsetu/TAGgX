@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { isTransientAuthError } from "./middleware";
 
 // For Server Components, Server Actions, and Route Handlers. Runs with the
 // caller's session (publishable key + auth cookies), so it is subject to RLS.
@@ -31,7 +32,15 @@ export function createClient() {
   );
 }
 
-/** Prefer a verified user; on a transient Auth outage, fall back to the JWT in cookies so we don't kick them out. */
+/**
+ * Prefer a verified user; on a *transient* Auth outage only, fall back to
+ * the unverified JWT in cookies so we don't kick them out mid-outage.
+ * getSession() doesn't round-trip to the auth server, so treating every
+ * getUser() error (an expired/invalid token included) as "outage, fall
+ * back" would accept a stale or tampered session — isTransientAuthError
+ * narrows that to actual 5xx/network-failure cases, same check
+ * middleware.ts uses for the same tradeoff.
+ */
 export async function getRequestAuthUser() {
   const supabase = createClient();
   const {
@@ -41,7 +50,7 @@ export async function getRequestAuthUser() {
   if (user) {
     return user;
   }
-  if (error) {
+  if (error && isTransientAuthError(error)) {
     const {
       data: { session },
     } = await supabase.auth.getSession();

@@ -89,12 +89,19 @@ interface TicketRow {
 export async function listMaintenanceTickets(): Promise<MaintenanceTicketSummary[]> {
   const supabase = createClient();
 
+  // Explicit cap: PostgREST's own default row limit is a project setting,
+  // not something this code should depend on silently. Tickets accumulate
+  // indefinitely (there's no archival step), so this is the one most
+  // likely to actually hit a limit — ordered newest-first so a company
+  // past the cap still sees its live/recent tickets, just not the oldest
+  // resolved history.
   const { data, error } = await supabase
     .from("maintenance_tickets")
     .select(
       "id, title, description, status, asset_id, assigned_to, opened_at, resolved_at, reporter_name, reporter_email, vendor_id, priority, due_at, type_key, asset:assets(name, asset_code), reported_by_user:users!maintenance_tickets_reported_by_fkey(full_name, email), assigned_to_user:users!maintenance_tickets_assigned_to_fkey(full_name, email)",
     )
     .order("opened_at", { ascending: false })
+    .limit(2000)
     .returns<TicketRow[]>();
 
   if (error || !data) {
@@ -167,10 +174,13 @@ interface PlanRow {
 
 export async function listMaintenancePlans(): Promise<MaintenancePlanSummary[]> {
   const supabase = createClient();
+  // Explicit cap: PostgREST's own default row limit is a project setting,
+  // not something this code should depend on silently.
   const { data } = await supabase
     .from("maintenance_plans")
     .select("id, name, asset_id, frequency, next_due_at, is_active, vendor_id, assigned_to, checklist, estimated_cost, instructions, interval_days")
     .order("next_due_at")
+    .limit(2000)
     .returns<PlanRow[]>();
   return (data ?? []).map((row) => ({
     id: row.id,

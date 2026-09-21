@@ -573,6 +573,11 @@ export async function updateUserRoleAction(userId: string, roleId: string): Prom
     return { error: "You don't have permission to edit users." };
   }
 
+  const roleChangeKey = `user-role-change:${clientIpFromHeaders(headers())}`;
+  if (!consumeRateLimit(roleChangeKey, 60, 60 * 60 * 1000)) {
+    return { error: "Too many changes. Try again later." };
+  }
+
   const supabase = createClient();
   const { data: role } = await supabase.from("roles").select("id").eq("id", roleId).maybeSingle();
   if (!role) {
@@ -638,6 +643,12 @@ export async function setCompanyAdminAction(userId: string, isCompanyAdmin: bool
   if (!(await requireWritableTenant())) {
     return { error: TENANT_READ_ONLY_MESSAGE };
   }
+
+  const adminChangeKey = `company-admin-change:${clientIpFromHeaders(headers())}`;
+  if (!consumeRateLimit(adminChangeKey, 30, 60 * 60 * 1000)) {
+    return { error: "Too many changes. Try again later." };
+  }
+
   if (!(await requirePermission("users", "manage")) && !(await requirePermission("users", "edit"))) {
     return { error: "You don't have permission to edit users." };
   }

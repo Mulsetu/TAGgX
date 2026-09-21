@@ -1,6 +1,24 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { TENANT_HEADERS } from "@/lib/tenant";
+
+/**
+ * middleware.ts is the only place authorized to set these — never forward
+ * whatever a client sent. Applied here too (not just in middleware.ts's
+ * own helpers) because `getResponse()`/its NextResponse are sometimes
+ * returned directly from an early branch (e.g. an anonymous visitor on a
+ * public tenant path) without going through middleware.ts's own header
+ * plumbing at all.
+ */
+function stripTenantHeaders(source: Headers): Headers {
+  const headers = new Headers(source);
+  headers.delete(TENANT_HEADERS.companyId);
+  headers.delete(TENANT_HEADERS.roleId);
+  headers.delete(TENANT_HEADERS.isSuperAdmin);
+  headers.delete(TENANT_HEADERS.isCompanyAdmin);
+  return headers;
+}
 
 /**
  * Copy Set-Cookie as raw headers so Path / Max-Age / HttpOnly survive.
@@ -45,7 +63,7 @@ export function isTransientAuthError(error: { name?: string; status?: number; me
 // any Supabase call that might refresh the session (e.g. auth.getUser()),
 // since setAll() below replaces the captured response with a fresh one.
 export function createMiddlewareClient(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  let response = NextResponse.next({ request: { headers: stripTenantHeaders(request.headers) } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,7 +75,7 @@ export function createMiddlewareClient(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
+          response = NextResponse.next({ request: { headers: stripTenantHeaders(request.headers) } });
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, { ...options, path: options?.path ?? "/" }),
           );

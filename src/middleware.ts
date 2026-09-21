@@ -16,8 +16,26 @@ interface UserProfileRow {
   is_company_admin: boolean;
 }
 
+/**
+ * These headers are only ever meant to be set further down, after the
+ * caller's session has been verified against the DB — never forwarded
+ * as-is from the client. Every path that lets a request continue to the
+ * app (as opposed to a redirect, which re-enters middleware on the next
+ * request) must strip them first, or a caller can set
+ * x-is-super-admin / x-is-company-admin / x-company-id / x-role-id
+ * itself and have a Server Action trust it outright.
+ */
+function stripTenantHeaders(request: NextRequest): Headers {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.delete(TENANT_HEADERS.companyId);
+  requestHeaders.delete(TENANT_HEADERS.roleId);
+  requestHeaders.delete(TENANT_HEADERS.isSuperAdmin);
+  requestHeaders.delete(TENANT_HEADERS.isCompanyAdmin);
+  return requestHeaders;
+}
+
 function continueWithCookies(request: NextRequest, from: NextResponse, headers?: Headers): NextResponse {
-  const requestHeaders = headers ?? new Headers(request.headers);
+  const requestHeaders = headers ?? stripTenantHeaders(request);
   const cookie = request.cookies
     .getAll()
     .map((entry) => `${entry.name}=${entry.value}`)
@@ -56,7 +74,7 @@ export async function middleware(request: NextRequest) {
   // Landing, signup, and SEO files do not need a session. Skipping the
   // Supabase client here keeps crawlers off an auth round-trip.
   if (isPublicMarketingPath(pathname) && !hasAuthTokenCookie(request)) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: stripTenantHeaders(request) } });
   }
 
   const { supabase, getResponse } = createMiddlewareClient(request);
@@ -90,12 +108,7 @@ export async function middleware(request: NextRequest) {
     if (hasAuthTokenCookie(request) && isTransientAuthError(userError)) {
       // Keep the session cookies, but never forward client-supplied tenant
       // headers — those are only authoritative after getUser() succeeds.
-      const requestHeaders = new Headers(request.headers);
-      requestHeaders.delete(TENANT_HEADERS.companyId);
-      requestHeaders.delete(TENANT_HEADERS.roleId);
-      requestHeaders.delete(TENANT_HEADERS.isSuperAdmin);
-      requestHeaders.delete(TENANT_HEADERS.isCompanyAdmin);
-      return NextResponse.next({ request: { headers: requestHeaders } });
+      return NextResponse.next({ request: { headers: stripTenantHeaders(request) } });
     }
 
     if (isTenantPublicPath || isAdminPublicPath || isPublicTagPath) {
@@ -249,7 +262,11 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  const requestHeaders = new Headers(request.headers);
+  // Start from a stripped copy, not a raw one: when `profile` is null (or
+  // profile.company_id/role_id are null, e.g. mid-onboarding) none of the
+  // .set() calls below fire for that header, and a client-supplied
+  // x-company-id/x-role-id would otherwise survive untouched.
+  const requestHeaders = stripTenantHeaders(request);
   if (profile?.company_id) {
     requestHeaders.set(TENANT_HEADERS.companyId, profile.company_id);
   }

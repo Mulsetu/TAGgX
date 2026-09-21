@@ -82,27 +82,39 @@ interface CompanyEmailRow {
 export async function listCompanies(): Promise<CompanySummary[]> {
   const supabase = createClient();
 
-  const [companiesRes, usersRes, invitesRes] = await Promise.all([
-    supabase
-      .from("companies")
-      .select("id, name, slug, is_dedicated_infra, suspended_at, created_at")
-      .order("created_at", { ascending: false })
-      .returns<CompanySummaryRow[]>(),
+  // Explicit cap: PostgREST's own default row limit is a project setting,
+  // not something this code should depend on silently.
+  const companiesRes = await supabase
+    .from("companies")
+    .select("id, name, slug, is_dedicated_infra, suspended_at, created_at")
+    .order("created_at", { ascending: false })
+    .limit(1000)
+    .returns<CompanySummaryRow[]>();
+
+  if (companiesRes.error || !companiesRes.data) {
+    return [];
+  }
+
+  // Scoped to just the companies on this page, not a full-table scan:
+  // this used to select every row of `users` and `company_invites`
+  // platform-wide on every admin page load (just to pick each company's
+  // earliest email), which only gets more expensive as the customer base
+  // grows — independent of the pagination question above.
+  const companyIds = companiesRes.data.map((row) => row.id);
+  const [usersRes, invitesRes] = await Promise.all([
     supabase
       .from("users")
       .select("email, company_id")
+      .in("company_id", companyIds)
       .order("created_at", { ascending: true })
       .returns<CompanyEmailRow[]>(),
     supabase
       .from("company_invites")
       .select("email, company_id")
+      .in("company_id", companyIds)
       .order("created_at", { ascending: true })
       .returns<CompanyEmailRow[]>(),
   ]);
-
-  if (companiesRes.error || !companiesRes.data) {
-    return [];
-  }
 
   const emailByCompanyId = new Map<string, string>();
   for (const row of usersRes.data ?? []) {
