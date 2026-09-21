@@ -100,3 +100,9 @@ export const updateWorkspaceSettingsSchema = z.object({
     .max(40)
     .regex(/\{SEQ(?::0?\d+d)?\}/, "Include {SEQ:05d} so each asset gets a unique number"),
 });
+
+export const requestDeletionSchema = z.object({
+  reason: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
+  confirmSlug: z.string().trim(),
+});
+

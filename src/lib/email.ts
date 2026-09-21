@@ -301,6 +301,48 @@ export async function sendCrmLeadNotificationEmail(
   });
 }
 
+interface WorkspaceDeletionRequestParams {
+  companyName: string;
+  companySlug: string;
+  requestedByEmail: string;
+  reason: string | null;
+  adminUrl: string;
+}
+
+/**
+ * Notifies TagX staff that a Company Admin flagged their own workspace for
+ * deletion (see modules/companies/actions.ts's requestWorkspaceDeletionAction).
+ * The request itself is a row on `companies` and survives until a super
+ * admin actually deletes the company — but that row (and everything else
+ * about the tenant) is gone the moment that happens, since
+ * company_id ... on delete cascade reaches audit_log too. This email is
+ * the one record of the request that isn't inside the tenant's own data
+ * and so isn't wiped out along with it.
+ */
+export async function sendWorkspaceDeletionRequestEmail(
+  params: WorkspaceDeletionRequestParams,
+): Promise<SendEmailResult> {
+  const to = process.env.CRM_NOTIFY_EMAIL?.trim() || process.env.BREVO_FROM_EMAIL?.trim();
+  if (!to) {
+    return { error: "No notification inbox is configured." };
+  }
+
+  const html = renderLayout(
+    `Deletion requested: ${escapeHtml(params.companyName)}`,
+    `<p><strong>${escapeHtml(params.companyName)}</strong> (/${escapeHtml(params.companySlug)}) requested workspace deletion.</p>
+     <p>Requested by: ${escapeHtml(params.requestedByEmail)}</p>
+     ${params.reason ? `<p>Reason: ${escapeHtml(params.reason)}</p>` : ""}
+     <p>Review and complete the delete from <a href="${params.adminUrl}">the admin companies list</a> — it is not automatic.</p>`,
+  );
+
+  return sendTransactionalEmail({
+    to: [{ email: to }],
+    subject: `TagX: deletion requested — ${params.companyName}`,
+    htmlContent: html,
+    textContent: `${params.companyName} (/${params.companySlug}) requested deletion, by ${params.requestedByEmail}. Review: ${params.adminUrl}`,
+  });
+}
+
 export function interpolateTemplate(template: string, vars: Record<string, string>, html: boolean): string {
   return template.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_match, key: string) => {
     const value = vars[key] ?? "";

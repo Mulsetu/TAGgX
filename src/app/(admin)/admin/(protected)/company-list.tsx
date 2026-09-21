@@ -71,6 +71,9 @@ export function CompanyList({
                       <span className="flex items-center gap-2">
                         {company.name}
                         {company.suspendedAt ? <Badge variant="destructive">Suspended</Badge> : null}
+                        {company.deletionRequestedAt ? (
+                          <Badge variant="destructive">Deletion requested</Badge>
+                        ) : null}
                       </span>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{company.adminEmail ?? "—"}</TableCell>

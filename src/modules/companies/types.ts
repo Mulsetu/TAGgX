@@ -8,6 +8,8 @@ export interface CompanyBranding {
   contactEmail: string | null;
   contactPhone: string | null;
   contactAddress: string | null;
+  deletionRequestedAt: string | null;
+  deletionReason: string | null;
 }
 
 export interface CompanySummary {
@@ -18,6 +20,7 @@ export interface CompanySummary {
   isDedicatedInfra: boolean;
   suspendedAt: string | null;
   createdAt: string;
+  deletionRequestedAt: string | null;
 }
 
 export interface CreateCompanyState {
@@ -59,6 +62,22 @@ export interface CompanyWorkspaceSettings {
 }
 
 export interface UpdateWorkspaceSettingsState {
+  error: string | null;
+  success?: boolean;
+}
+
+export interface WorkspaceExportSheet {
+  name: string;
+  columns: string[];
+  rows: string[][];
+}
+
+export interface WorkspaceExportState {
+  error: string | null;
+  export?: { filename: string; content: string; mime: string; encoding: "base64" };
+}
+
+export interface DeletionRequestState {
   error: string | null;
   success?: boolean;
 }

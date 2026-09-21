@@ -379,3 +379,30 @@ export async function seedCompanyPlatformCatalogs(companyId: string): Promise<{ 
 
   return { error: null };
 }
+
+export type DeletionRequestResult = { error: string | null };
+
+/**
+ * Flags the caller's own company for deletion review — the actual delete
+ * only ever happens through a super admin's deleteCompanyAction in /admin.
+ * Runs through the request_company_deletion() RPC (migration 0050), which
+ * re-checks Company Admin status at the database layer rather than
+ * trusting a column grant — same reasoning as 0048's set_company_admin().
+ */
+export async function requestCompanyDeletion(reason: string | null): Promise<DeletionRequestResult> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("request_company_deletion", { p_reason: reason });
+  if (error) {
+    return { error: "Could not submit the deletion request." };
+  }
+  return { error: null };
+}
+
+export async function cancelCompanyDeletionRequest(): Promise<DeletionRequestResult> {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("cancel_company_deletion_request");
+  if (error) {
+    return { error: "Could not cancel the deletion request." };
+  }
+  return { error: null };
+}

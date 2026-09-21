@@ -9,6 +9,7 @@ import { assertPermission, requirePermission } from "@/lib/permissions/has-permi
 import { BrandingForm } from "./branding-form";
 import { BillingPanel } from "./billing-panel";
 import { WorkspaceSettingsForm } from "./workspace-form";
+import { DataPrivacyPanel } from "./data-privacy-panel";
 
 export default async function SettingsPage() {
   await assertPermission("settings", "view");
@@ -44,6 +45,7 @@ export default async function SettingsPage() {
         />
       ) : null}
       <BillingPanel quota={quota} orders={orders} payments={payments} canEdit={canEdit} />
+      {canEdit ? <DataPrivacyPanel company={company} /> : null}
     </div>
   );
 }

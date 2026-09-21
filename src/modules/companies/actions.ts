@@ -1,27 +1,31 @@
 "use server";
 
 import "server-only";
+import ExcelJS from "exceljs";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { isValidTenantSlug, TENANT_HEADERS } from "@/lib/tenant";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
-import { requirePermission } from "@/lib/permissions/has-permission";
+import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
 import { createClient } from "@/lib/supabase/server";
-import { sendUserInviteEmail } from "@/lib/email";
+import { sendUserInviteEmail, sendWorkspaceDeletionRequestEmail } from "@/lib/email";
+import { getSiteUrl } from "@/lib/site";
 import { createSystemAdminRole, seedDefaultCompanyRoles } from "@/modules/roles/mutations";
 import { seedDefaultAssetStatuses } from "@/modules/statuses/mutations";
 import { seedDefaultAssetConditions } from "@/modules/conditions/mutations";
 import { uploadFileToR2 } from "@/modules/storage/mutations";
-import { createCompanySchema, slugSchema, updateCompanyBrandingSchema, updateCompanySchema, updateWorkspaceSettingsSchema } from "./validation";
-import { getCompanyBySlug, getCompanyById, getCompanyWorkspaceSettings, getUserIdsForCompany, listCompanies } from "./queries";
+import { createCompanySchema, requestDeletionSchema, slugSchema, updateCompanyBrandingSchema, updateCompanySchema, updateWorkspaceSettingsSchema } from "./validation";
+import { getCompanyBySlug, getCompanyById, getCompanyWorkspaceSettings, getUserIdsForCompany, getWorkspaceExportData, listCompanies } from "./queries";
 import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/queries";
 import { applyPlanLimitsToCompany, insertBillingPayment, upsertCompanySubscription } from "@/modules/billing/mutations";
 import {
+  cancelCompanyDeletionRequest,
   createCompany,
   createCompanyInvite,
   deleteAuthUsersByIds,
   deleteCompany,
+  requestCompanyDeletion,
   seedCompanyPlatformCatalogs,
   setCompanySuspended,
   updateCompany,
@@ -34,9 +38,12 @@ import type {
   CompanyWorkspaceSettings,
   CreateCompanyState,
   DeleteCompanyState,
+  DeletionRequestState,
   UpdateCompanyBrandingState,
   UpdateCompanyState,
   UpdateWorkspaceSettingsState,
+  WorkspaceExportSheet,
+  WorkspaceExportState,
 } from "./types";
 import { FEATURE_MODULES, clampModulesToPlan, parseEnabledModules, parsePlanModules, type EnabledModules } from "@/lib/permissions/feature-catalog";
 import {
@@ -576,6 +583,146 @@ export async function deleteCompanyAction(companyId: string): Promise<DeleteComp
   }
 
   revalidatePath("/admin");
+
+  return { error: null, success: true };
+}
+
+async function sheetsToXlsxBase64(sheets: WorkspaceExportSheet[]): Promise<string> {
+  const workbook = new ExcelJS.Workbook();
+  for (const sheet of sheets) {
+    // Sheet names can't exceed 31 chars or contain [ ] : * ? / \ — every
+    // name here is a short literal already within that limit, so no
+    // sanitizing needed, just the length guard for safety.
+    const worksheet = workbook.addWorksheet(sheet.name.slice(0, 31));
+    worksheet.addRow(sheet.columns);
+    for (const row of sheet.rows) {
+      worksheet.addRow(row);
+    }
+  }
+  const buffer = Buffer.from(await workbook.xlsx.writeBuffer());
+  return buffer.toString("base64");
+}
+
+/**
+ * Settings > "Export my data": a Company Admin's self-serve copy of
+ * everything RLS already scopes to their company — assets, locations,
+ * categories, maintenance, vendors, users, and the audit trail — as one
+ * downloadable workbook. Company-Admin-gated rather than a permission
+ * cell: this is workspace-owner territory, same reasoning as the
+ * deletion-request actions below.
+ */
+export async function exportWorkspaceDataAction(): Promise<WorkspaceExportState> {
+  if (!(await isCurrentUserCompanyAdmin()) && !(await isCurrentUserSuperAdmin())) {
+    return { error: "Only a Company Admin can export workspace data." };
+  }
+
+  const exportKey = `workspace-export:${clientIpFromHeaders(headers())}`;
+  if (!consumeRateLimit(exportKey, 5, 60 * 60 * 1000)) {
+    return { error: "Too many exports. Try again later." };
+  }
+
+  const company = await getCurrentCompany();
+  if (!company) {
+    return { error: "Could not determine your company." };
+  }
+
+  const sheets = await getWorkspaceExportData();
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  await writeAuditLog({ action: "company.data_exported", entityType: "company", entityId: company.id });
+
+  return {
+    error: null,
+    export: {
+      filename: `${company.slug}-export-${stamp}.xlsx`,
+      content: await sheetsToXlsxBase64(sheets),
+      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      encoding: "base64",
+    },
+  };
+}
+
+/**
+ * Settings > "Danger zone" > request deletion. Only flags the company —
+ * see request_company_deletion() (migration 0050) and
+ * sendWorkspaceDeletionRequestEmail's doc comment for why this isn't a
+ * one-click hard delete. Requires typing the workspace slug, same
+ * confirm-by-typing pattern the super-admin delete flow already uses in
+ * company-detail-dialog.tsx.
+ */
+export async function requestWorkspaceDeletionAction(
+  _prevState: DeletionRequestState,
+  formData: FormData,
+): Promise<DeletionRequestState> {
+  if (!(await isCurrentUserCompanyAdmin())) {
+    return { error: "Only a Company Admin can request workspace deletion." };
+  }
+
+  const company = await getCurrentCompany();
+  if (!company) {
+    return { error: "Could not determine your company." };
+  }
+
+  const parsed = requestDeletionSchema.safeParse({
+    reason: formData.get("reason"),
+    confirmSlug: formData.get("confirmSlug"),
+  });
+  if (!parsed.success || parsed.data.confirmSlug !== company.slug) {
+    return { error: `Type "${company.slug}" to confirm.` };
+  }
+
+  const deletionKey = `deletion-request:${company.id}`;
+  if (!consumeRateLimit(deletionKey, 3, 24 * 60 * 60 * 1000)) {
+    return { error: "Too many requests. Contact TagX support directly." };
+  }
+
+  const result = await requestCompanyDeletion(parsed.data.reason ?? null);
+  if (result.error) {
+    return { error: result.error };
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  await writeAuditLog({
+    action: "company.deletion_requested",
+    entityType: "company",
+    entityId: company.id,
+    newValues: { reason: parsed.data.reason ?? null },
+  });
+
+  // Best-effort: the request is already recorded on `companies` either
+  // way (visible in the admin companies list), so a failed notification
+  // email shouldn't block the confirmation the Company Admin sees.
+  await sendWorkspaceDeletionRequestEmail({
+    companyName: company.name,
+    companySlug: company.slug,
+    requestedByEmail: user?.email ?? "unknown",
+    reason: parsed.data.reason ?? null,
+    adminUrl: `${getSiteUrl()}/admin`,
+  });
+
+  revalidatePath("/dashboard/administration/settings");
+
+  return { error: null, success: true };
+}
+
+export async function cancelWorkspaceDeletionRequestAction(): Promise<DeletionRequestState> {
+  if (!(await isCurrentUserCompanyAdmin())) {
+    return { error: "Only a Company Admin can cancel a deletion request." };
+  }
+
+  const result = await cancelCompanyDeletionRequest();
+  if (result.error) {
+    return { error: result.error };
+  }
+
+  const company = await getCurrentCompany();
+  await writeAuditLog({ action: "company.deletion_request_canceled", entityType: "company", entityId: company?.id });
+
+  revalidatePath("/dashboard/administration/settings");
 
   return { error: null, success: true };
 }

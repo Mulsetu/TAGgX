@@ -5,25 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { downloadFile as download } from "@/lib/download";
 import { commitImportAction, exportReportAction, getImportTemplateCsv, previewImportAction } from "@/modules/reports/actions";
 import { REPORT_LABELS, type ImportFormState, type ImportJobSummary, type ReportFormState, type ReportKey } from "@/modules/reports/types";
 
 const reportState: ReportFormState = { error: null };
 const importState: ImportFormState = { error: null };
-
-function download(filename: string, content: string, mime: string, encoding?: "utf8" | "base64") {
-  const bytes =
-    encoding === "base64"
-      ? Uint8Array.from(atob(content), (char) => char.charCodeAt(0))
-      : new TextEncoder().encode(content);
-  const blob = new Blob([bytes], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
 
 export function ReportsAdmin({ jobs, reportKeys }: { jobs: ImportJobSummary[]; reportKeys: ReportKey[] }) {
   const [exportError, setExportError] = useState<string | null>(null);

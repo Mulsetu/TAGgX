@@ -49,6 +49,13 @@ const nextConfig = {
       { protocol: "https", hostname: "*.r2.dev" },
       { protocol: "https", hostname: "*.r2.cloudflarestorage.com" },
     ],
+    // AVIF dropped from the default ['image/avif', 'image/webp']: a
+    // critical (CVSS 9.5) RCE in the libheif/sharp AVIF path is unfixed on
+    // this pinned Next 14.2.35 (fixed only in 15.5.24+/16.3.3+ — see
+    // GHSA-2xp9-vwfh-vxw4). Its own stated interim mitigation, pending
+    // that upgrade, is exactly this: don't let the optimizer touch AVIF.
+    // WebP output is unaffected and has equivalent browser support.
+    formats: ["image/webp"],
   },
   async headers() {
     const headers = [
