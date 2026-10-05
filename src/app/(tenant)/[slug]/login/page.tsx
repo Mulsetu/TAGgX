@@ -7,6 +7,9 @@ import { safePostLoginPath } from "@/lib/paths";
 import { getCompanyForLogin } from "@/modules/companies/actions";
 import { LoginForm } from "./login-form";
 
+/** Always hit Supabase for slug → company; never serve a cached 404 miss. */
+export const dynamic = "force-dynamic";
+
 interface TenantLoginPageProps {
   params: { slug: string };
   searchParams: { next?: string };

@@ -15,6 +15,15 @@ export function createAdminClient() {
   return createSupabaseJsClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     secretKey,
-    { auth: { autoRefreshToken: false, persistSession: false } },
+    {
+      auth: { autoRefreshToken: false, persistSession: false },
+      // Next.js caches fetch() in Server Components by default. A miss for
+      // /{slug}/login (or an empty admin company list) would keep 404ing
+      // after the row is created in Supabase — see Vercel "Using cache"
+      // on rest/v1/companies.
+      global: {
+        fetch: (url, options = {}) => fetch(url, { ...options, cache: "no-store" }),
+      },
+    },
   );
 }

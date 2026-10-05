@@ -28,6 +28,10 @@ export function createClient() {
           }
         },
       },
+      // Avoid stale empty lists (e.g. /admin Companies) after SQL inserts.
+      global: {
+        fetch: (url, options = {}) => fetch(url, { ...options, cache: "no-store" }),
+      },
     },
   );
 }
