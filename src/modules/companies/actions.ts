@@ -497,7 +497,7 @@ export async function updateWorkspaceSettingsAction(
   }
 
   const stored = await getCompanyWorkspaceSettings(companyId);
-  let assetCodeFormat = stored.assetCodeFormat;
+  const assetCodeFormat = stored.assetCodeFormat;
   let enabledModules = parseEnabledModules(stored.enabledModules);
   let assetFieldConfig = parseAssetFieldConfig(stored.assetFieldConfig);
   let dashboardWidgets = parseDashboardWidgets(stored.dashboardWidgets);
