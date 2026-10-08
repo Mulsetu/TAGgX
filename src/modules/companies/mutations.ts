@@ -236,35 +236,54 @@ export async function updateCompanyLogoAdmin(
   return { success: true };
 }
 
+export interface WorkspaceSettingsPatch {
+  enabledModules?: Record<string, boolean>;
+  assetFieldConfig?: Record<string, unknown>;
+  dashboardWidgets?: Record<string, unknown>;
+  dashboardLayouts?: unknown;
+  workflowConfig?: Record<string, unknown>;
+  departmentCatalog?: string[];
+  disposalMethods?: string[];
+}
+
+/**
+ * Writes only the columns a Settings section actually changed, as an
+ * UPDATE of the existing row with an INSERT fallback when the company has
+ * no settings row yet. Not a PostgREST upsert: that compiles to
+ * `ON CONFLICT DO UPDATE SET company_id = EXCLUDED.company_id, ...`, and
+ * `authenticated` deliberately has no UPDATE grant on company_id (0043),
+ * so every upsert failed with 42501.
+ */
 export async function upsertCompanyWorkspaceSettings(
   companyId: string,
-  input: {
-    assetCodeFormat: string;
-    enabledModules: Record<string, boolean>;
-    assetFieldConfig: Record<string, unknown>;
-    dashboardWidgets: Record<string, unknown>;
-    dashboardLayouts: unknown;
-    workflowConfig: Record<string, unknown>;
-    departmentCatalog: string[];
-    disposalMethods: string[];
-  },
+  patch: WorkspaceSettingsPatch,
 ): Promise<{ error: string | null }> {
+  const columns: Record<string, unknown> = {};
+  if (patch.enabledModules !== undefined) columns.enabled_modules = patch.enabledModules;
+  if (patch.assetFieldConfig !== undefined) columns.asset_field_config = patch.assetFieldConfig;
+  if (patch.dashboardWidgets !== undefined) columns.dashboard_widgets = patch.dashboardWidgets;
+  if (patch.dashboardLayouts !== undefined) columns.dashboard_layouts = patch.dashboardLayouts;
+  if (patch.workflowConfig !== undefined) columns.workflow_config = patch.workflowConfig;
+  if (patch.departmentCatalog !== undefined) columns.department_catalog = patch.departmentCatalog;
+  if (patch.disposalMethods !== undefined) columns.disposal_methods = patch.disposalMethods;
+
   const supabase = createClient();
-  const { error } = await supabase.from("company_settings").upsert(
-    {
-      company_id: companyId,
-      asset_code_format: input.assetCodeFormat,
-      enabled_modules: input.enabledModules,
-      asset_field_config: input.assetFieldConfig,
-      dashboard_widgets: input.dashboardWidgets,
-      dashboard_layouts: input.dashboardLayouts,
-      workflow_config: input.workflowConfig,
-      department_catalog: input.departmentCatalog,
-      disposal_methods: input.disposalMethods,
-    },
-    { onConflict: "company_id" },
-  );
-  return { error: error ? "Could not save workspace settings." : null };
+  const updated = await supabase
+    .from("company_settings")
+    .update(columns)
+    .eq("company_id", companyId)
+    .select("company_id");
+
+  let error = updated.error;
+  if (!error && (updated.data ?? []).length === 0) {
+    ({ error } = await supabase.from("company_settings").insert({ company_id: companyId, ...columns }));
+  }
+  if (error) {
+    // eslint-disable-next-line no-console
+    console.error("upsertCompanyWorkspaceSettings failed", { code: error.code, message: error.message });
+    return { error: "Could not save workspace settings." };
+  }
+  return { error: null };
 }
 
 const EMAIL_TEMPLATE_SEEDS: { event_key: string; subject: string; html_body: string; text_body: string }[] = [

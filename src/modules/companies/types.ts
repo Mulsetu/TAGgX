@@ -12,11 +12,18 @@ export interface CompanyBranding {
   deletionReason: string | null;
 }
 
+/**
+ * Whether the first Company Admin has set up their account yet:
+ * `active` once any user exists, otherwise from the newest invite.
+ */
+export type CompanyInviteStatus = "active" | "pending" | "expired" | "none";
+
 export interface CompanySummary {
   id: string;
   name: string;
   slug: string;
   adminEmail: string | null;
+  inviteStatus: CompanyInviteStatus;
   isDedicatedInfra: boolean;
   suspendedAt: string | null;
   createdAt: string;
@@ -25,6 +32,13 @@ export interface CompanySummary {
 
 export interface CreateCompanyState {
   error: string | null;
+  /** Set once the company and its admin invite both exist. */
+  created?: {
+    name: string;
+    slug: string;
+    adminEmail: string;
+    emailSent: boolean;
+  };
   /**
    * Present when there's a setup link worth showing directly instead of
    * relying on the email having arrived — always in development (so

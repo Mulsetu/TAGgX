@@ -2,7 +2,7 @@ import "server-only";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import type { CompanyBranding, CompanySummary, WorkspaceExportSheet } from "./types";
+import type { CompanyBranding, CompanyInviteStatus, CompanySummary, WorkspaceExportSheet } from "./types";
 
 interface CompanyBrandingRow {
   id: string;
@@ -81,6 +81,11 @@ interface CompanyEmailRow {
   company_id: string;
 }
 
+interface CompanyInviteRow extends CompanyEmailRow {
+  accepted_at: string | null;
+  expires_at: string;
+}
+
 /**
  * Every company on the platform, for the super-admin company list. Uses
  * the service-role client after the super-admin check. The session client
@@ -137,10 +142,10 @@ export async function listCompanies(): Promise<CompanySummary[]> {
       .returns<CompanyEmailRow[]>(),
     supabase
       .from("company_invites")
-      .select("email, company_id")
+      .select("email, company_id, accepted_at, expires_at")
       .in("company_id", companyIds)
       .order("created_at", { ascending: true })
-      .returns<CompanyEmailRow[]>(),
+      .returns<CompanyInviteRow[]>(),
   ]);
 
   const emailByCompanyId = new Map<string, string>();
@@ -149,10 +154,29 @@ export async function listCompanies(): Promise<CompanySummary[]> {
       emailByCompanyId.set(row.company_id, row.email);
     }
   }
+  const companiesWithUsers = new Set(emailByCompanyId.keys());
+  // Rows are oldest-first, so the last one seen per company is the newest invite.
+  const latestInviteByCompanyId = new Map<string, CompanyInviteRow>();
   for (const row of invitesRes.data ?? []) {
     if (!emailByCompanyId.has(row.company_id)) {
       emailByCompanyId.set(row.company_id, row.email);
     }
+    latestInviteByCompanyId.set(row.company_id, row);
+  }
+
+  const now = Date.now();
+  function inviteStatusFor(companyId: string): CompanyInviteStatus {
+    if (companiesWithUsers.has(companyId)) {
+      return "active";
+    }
+    const invite = latestInviteByCompanyId.get(companyId);
+    if (!invite) {
+      return "none";
+    }
+    if (invite.accepted_at) {
+      return "active";
+    }
+    return new Date(invite.expires_at).getTime() > now ? "pending" : "expired";
   }
 
   return companiesRes.data.map((row) => ({
@@ -160,6 +184,7 @@ export async function listCompanies(): Promise<CompanySummary[]> {
     name: row.name,
     slug: row.slug,
     adminEmail: emailByCompanyId.get(row.id) ?? null,
+    inviteStatus: inviteStatusFor(row.id),
     isDedicatedInfra: row.is_dedicated_infra,
     suspendedAt: row.suspended_at,
     createdAt: row.created_at,

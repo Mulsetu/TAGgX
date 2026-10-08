@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -33,22 +34,43 @@ export function CreateCompanyForm({ plans }: { plans: BillingPlan[] }) {
     });
   }
 
-  if (state.inviteUrl) {
+  if (state.created) {
+    const { created } = state;
     return (
-      <div className="flex w-full max-w-lg flex-col gap-3 rounded-lg border p-4">
-        <p className="text-sm font-medium">Company created</p>
-        <p className="text-sm text-muted-foreground">
-          Setup link for the new Company Admin (dev mode — no email was sent):
+      <div role="status" className="flex w-full max-w-lg flex-col gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-emerald-900">Company created: {created.name}</p>
+          <Badge variant="secondary">Invite pending</Badge>
+        </div>
+        <p className="text-sm text-slate-700">
+          Workspace <span className="font-mono">/{created.slug}</span> is ready. It stays{" "}
+          <strong>pending</strong> until {created.adminEmail} accepts the invite and sets a password
+          (the link expires in 7 days).
         </p>
-        <a
-          href={state.inviteUrl}
-          className="break-all rounded-md bg-muted px-2 py-1.5 text-xs hover:underline"
-        >
-          {state.inviteUrl}
-        </a>
-        <Button asChild variant="outline" size="sm">
-          <a href="/admin">Back to companies</a>
-        </Button>
+        {created.emailSent ? (
+          <p className="text-sm text-slate-700">Invite email sent to {created.adminEmail}.</p>
+        ) : state.inviteUrl ? (
+          <>
+            <p className="text-sm text-amber-800">
+              The invite email was not sent (dev mode or email failure). Share this setup link with the
+              Company Admin:
+            </p>
+            <a
+              href={state.inviteUrl}
+              className="break-all rounded-md bg-white px-2 py-1.5 text-xs hover:underline"
+            >
+              {state.inviteUrl}
+            </a>
+          </>
+        ) : null}
+        <div className="flex gap-2">
+          <Button asChild variant="outline" size="sm">
+            <a href="/admin">Back to companies</a>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setState(initialState)}>
+            Create another
+          </Button>
+        </div>
       </div>
     );
   }
