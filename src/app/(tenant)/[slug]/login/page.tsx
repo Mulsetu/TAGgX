@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { BrandLogo, TagXLogo } from "@/components/layout/brand-logo";
-import { brandingStyle } from "@/lib/color";
+import { companyShellStyle } from "@/lib/color";
 import { companyPageMetadata } from "@/lib/company-metadata";
 import { safePostLoginPath } from "@/lib/paths";
 import { getCompanyForLogin } from "@/modules/companies/actions";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 interface TenantLoginPageProps {
   params: { slug: string };
-  searchParams: { next?: string };
+  searchParams: { next?: string; error?: string };
 }
 
 export async function generateMetadata({ params }: TenantLoginPageProps): Promise<Metadata> {
@@ -33,7 +33,7 @@ export default async function TenantLoginPage({ params, searchParams }: TenantLo
   return (
     <main
       className="flex min-h-dvh flex-col items-center justify-center gap-8 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))]"
-      style={brandingStyle(company.primaryColor, company.secondaryColor)}
+      style={companyShellStyle(company.primaryColor, company.secondaryColor)}
     >
       <div className="flex flex-col items-center gap-3">
         <BrandLogo
@@ -43,9 +43,13 @@ export default async function TenantLoginPage({ params, searchParams }: TenantLo
           fallback={false}
           className="h-14 w-14 rounded-md"
         />
-        <h1 className="text-xl font-semibold text-primary">{company.name}</h1>
+        <h1 className="text-xl font-semibold text-[hsl(var(--brand-primary))]">{company.name}</h1>
       </div>
-      <LoginForm slug={company.slug} nextPath={safePostLoginPath(searchParams.next)} />
+      <LoginForm
+        slug={company.slug}
+        nextPath={safePostLoginPath(searchParams.next)}
+        errorCode={searchParams.error}
+      />
       <TagXLogo size={96} className="h-12 w-auto max-w-[14rem]" />
     </main>
   );

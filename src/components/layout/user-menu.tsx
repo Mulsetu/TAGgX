@@ -24,15 +24,15 @@ export function UserMenu({ user, from }: { user: CurrentUser; from: "admin" | "t
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <SidebarMenuButton size="lg" tooltip={user.fullName ?? user.email}>
-          <Avatar className="h-7 w-7">
-            <AvatarFallback>{initialsFor(user)}</AvatarFallback>
+        <SidebarMenuButton size="lg" tooltip={user.fullName ?? user.email} className="hover:bg-white/10">
+          <Avatar className="h-9 w-9">
+            <AvatarFallback className="bg-white/15 text-xs font-semibold text-white">{initialsFor(user)}</AvatarFallback>
           </Avatar>
           <span className="flex min-w-0 flex-col text-left">
-            <span className="truncate text-sm font-medium">{user.fullName ?? user.email}</span>
-            {user.role ? <span className="truncate text-xs text-muted-foreground">{user.role.name}</span> : null}
+            <span className="truncate text-sm font-medium text-white">{user.fullName ?? user.email}</span>
+            {user.role ? <span className="truncate text-xs text-white/65">{user.role.name}</span> : null}
           </span>
-          <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
+          <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 text-white/50" />
         </SidebarMenuButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="w-56">

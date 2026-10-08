@@ -90,6 +90,7 @@ export const assetListQuerySchema = z.object({
   sort: z.preprocess(emptyToUndefined, z.enum(ASSET_LIST_SORTS).optional()),
   sortDir: z.preprocess(emptyToUndefined, z.enum(["asc", "desc"]).optional()),
   includeArchived: z.preprocess((value) => value === "1" || value === "true" || value === true, z.boolean().optional()),
+  pageSize: z.preprocess(emptyToUndefined, z.coerce.number().int().optional()),
 });
 
 export const publicAssetIdSchema = z.string().uuid();
@@ -97,6 +98,6 @@ export const publicAssetIdSchema = z.string().uuid();
 export const publicAssetReportSchema = z.object({
   assetId: z.string().uuid(),
   name: z.string().trim().min(1, "Name is required").max(200),
-  email: z.string().trim().email("Enter a valid email").max(320),
-  message: z.string().trim().min(1, "Describe the issue").max(2000),
+  email: z.preprocess(emptyToUndefined, z.string().trim().email("Enter a valid email").max(320).optional()),
+  message: z.string().trim().min(1, "Describe the issue").max(500),
 });

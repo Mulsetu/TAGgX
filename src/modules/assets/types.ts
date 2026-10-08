@@ -25,7 +25,7 @@ export type AssetCondition = string;
 export const ASSET_CRITICALITIES = ["low", "medium", "high", "critical"] as const;
 export type AssetCriticality = (typeof ASSET_CRITICALITIES)[number];
 
-export const ASSET_LIST_SORTS = ["created", "name", "code", "purchase"] as const;
+export const ASSET_LIST_SORTS = ["updated", "created", "name", "code", "purchase"] as const;
 export type AssetListSort = (typeof ASSET_LIST_SORTS)[number];
 
 export interface ConditionOption {
@@ -70,6 +70,20 @@ export interface AssetListItem {
   vendorName: string | null;
   allottedToName: string | null;
   condition: AssetCondition | null;
+  updatedAt: string;
+}
+
+/** Compact row for the company dashboard's recent-assets table. */
+export interface RecentAsset {
+  id: string;
+  name: string;
+  assetCode: string;
+  categoryName: string | null;
+  locationName: string | null;
+  statusName: string;
+  imageUrl: string | null;
+  allottedToName: string | null;
+  updatedAt: string;
 }
 
 export interface AssetListFilters {
@@ -184,6 +198,7 @@ export interface PublicAsset {
   model: string | null;
   description: string | null;
   serialNumber: string | null;
+  tags: string[];
   customFields: { label: string; value: string }[];
   company: {
     id: string;

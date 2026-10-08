@@ -3,8 +3,6 @@
 import { useState, useTransition } from "react";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -31,13 +29,18 @@ function FormSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded-lg border">
-      <CollapsibleTrigger className="flex w-full items-center justify-between p-4 text-left text-sm font-medium">
+    <div className="rounded-lg border">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between p-4 text-left text-sm font-medium"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
         {title}
         <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="flex flex-col gap-4 border-t p-4">{children}</CollapsibleContent>
-    </Collapsible>
+      </button>
+      <div className={open ? "flex flex-col gap-4 border-t p-4" : "hidden"}>{children}</div>
+    </div>
   );
 }
 
@@ -223,7 +226,6 @@ interface AssetFormProps {
 export function AssetForm({ mode, asset, options }: AssetFormProps) {
   const [state, setState] = useState<AssetFormState>(initialState);
   const [isPending, startTransition] = useTransition();
-  const [autoGenerateCode, setAutoGenerateCode] = useState(mode === "create");
   const [ownershipType, setOwnershipType] = useState<OwnershipType>(asset?.ownershipType ?? "owned");
   const [categoryId, setCategoryId] = useState(asset?.categoryId ?? "");
 
@@ -268,29 +270,13 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
 
         <ImageUploadField defaultValue={asset?.imageUrl} />
 
-        {mode === "create" ? (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="autoGenerateCode"
-                checked={autoGenerateCode}
-                onCheckedChange={(checked) => setAutoGenerateCode(checked === true)}
-              />
-              <Label htmlFor="autoGenerateCode" className="font-normal">
-                Auto-generate code
-              </Label>
-            </div>
-            {!autoGenerateCode ? (
-              <Field label="Code *" htmlFor="assetCode" error={fieldErrors.assetCode}>
-                <Input id="assetCode" name="assetCode" required maxLength={100} placeholder="e.g. AST-00001" />
-              </Field>
-            ) : null}
+        {mode === "edit" && asset?.assetCode ? (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-sm font-medium">Code</p>
+            <p className="text-sm text-slate-600">{asset.assetCode}</p>
+            <input type="hidden" name="assetCode" value={asset.assetCode} />
           </div>
-        ) : (
-          <Field label="Code *" htmlFor="assetCode" error={fieldErrors.assetCode}>
-            <Input id="assetCode" name="assetCode" defaultValue={asset?.assetCode} required maxLength={100} />
-          </Field>
-        )}
+        ) : null}
 
         <Field label="Category *" htmlFor="categoryId" error={fieldErrors.categoryId}>
           <NativeSelect

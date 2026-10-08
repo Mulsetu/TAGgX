@@ -14,7 +14,7 @@ import {
 
 export function MarketingFooter() {
   return (
-    <footer className="border-t bg-[#07343C] text-white">
+    <footer className="border-t bg-[#003848] text-white">
       <div className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-12 md:grid-cols-4 md:px-6">
         <div className="md:col-span-1">
           <div className="flex items-center">
@@ -26,7 +26,7 @@ export function MarketingFooter() {
           </p>
         </div>
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8BC34A]">Product</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9AD45A]">Product</p>
           <ul className="mt-3 flex flex-col gap-2 text-sm text-white/80">
             <li>
               <Link href="/asset-management-system" className="hover:text-white">
@@ -61,7 +61,7 @@ export function MarketingFooter() {
           </ul>
         </div>
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8BC34A]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9AD45A]">
             {SITE_PARENT}
           </p>
           <ul className="mt-3 flex flex-col gap-2 text-sm text-white/80">
@@ -83,7 +83,7 @@ export function MarketingFooter() {
           </ul>
         </div>
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#8BC34A]">Legal</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#9AD45A]">Legal</p>
           <ul className="mt-3 flex flex-col gap-2 text-sm text-white/80">
             <li>
               <a href={MULSETU_PRIVACY_URL} className="hover:text-white" rel="noreferrer" target="_blank">

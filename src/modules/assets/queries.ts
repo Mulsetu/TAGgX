@@ -11,6 +11,7 @@ import type {
   AssetListFilters,
   AssetListItem,
   AssetListResult,
+  RecentAsset,
   AssetLocationMove,
   AssetCriticality,
   AssetOption,
@@ -122,6 +123,7 @@ interface AssetListRow {
   vendor: string | null;
   vendor_id: string | null;
   allotted_to: string | null;
+  updated_at: string;
   category: { name: string } | null;
   location: { name: string } | null;
   status: { name: string } | null;
@@ -143,6 +145,7 @@ function isoPlusDays(days: number): string {
 }
 
 const SORT_COLUMN = {
+  updated: "updated_at",
   created: "created_at",
   name: "name",
   code: "asset_code",
@@ -163,13 +166,13 @@ export async function listAssets(
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
   const today = isoToday();
-  const sortColumn = SORT_COLUMN[filters.sort ?? "created"];
+  const sortColumn = SORT_COLUMN[filters.sort ?? "updated"];
   const ascending = filters.sortDir === "asc";
 
   let query = supabase
     .from("assets")
     .select(
-      "id, name, asset_code, status_id, image_url, location_id, serial_number, condition, vendor, vendor_id, allotted_to, category:asset_categories(name), location:locations(name), status:asset_statuses(name), vendor_row:vendors(name)",
+      "id, name, asset_code, status_id, image_url, location_id, serial_number, condition, vendor, vendor_id, allotted_to, updated_at, category:asset_categories(name), location:locations(name), status:asset_statuses(name), vendor_row:vendors(name)",
       { count: "exact" },
     )
     .is("deleted_at", null)
@@ -286,9 +289,99 @@ export async function listAssets(
     vendorName: row.vendor_row?.name ?? row.vendor,
     allottedToName: row.allotted_to ? (custodianNames.get(row.allotted_to) ?? null) : null,
     condition: row.condition,
+    updatedAt: row.updated_at,
   }));
 
   return { items, totalCount: count ?? items.length, page, pageSize };
+}
+
+interface RecentAssetRow {
+  id: string;
+  name: string;
+  asset_code: string;
+  image_url: string | null;
+  location_id: string | null;
+  allotted_to: string | null;
+  updated_at: string;
+  category: { name: string } | null;
+  location: { name: string } | null;
+  status: { name: string } | null;
+}
+
+/** Newest updates for the company dashboard table. */
+export async function listRecentAssets(limit = 8): Promise<RecentAsset[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("assets")
+    .select(
+      "id, name, asset_code, image_url, location_id, allotted_to, updated_at, category:asset_categories(name), location:locations(name), status:asset_statuses(name)",
+    )
+    .is("deleted_at", null)
+    .is("archived_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(limit)
+    .returns<RecentAssetRow[]>();
+
+  if (error || !data) {
+    return [];
+  }
+
+  const pathById = new Map((await listLocations()).map((location) => [location.id, location.path]));
+  const custodianIds = Array.from(
+    new Set(data.map((row) => row.allotted_to).filter((id): id is string => Boolean(id))),
+  );
+  const custodianNames = new Map<string, string>();
+  if (custodianIds.length > 0) {
+    const { data: custodians } = await supabase
+      .from("users")
+      .select("id, full_name, email")
+      .in("id", custodianIds)
+      .returns<{ id: string; full_name: string | null; email: string }[]>();
+    for (const row of custodians ?? []) {
+      custodianNames.set(row.id, row.full_name ?? row.email);
+    }
+  }
+
+  return data.map((row) => ({
+    id: row.id,
+    name: row.name,
+    assetCode: row.asset_code,
+    categoryName: row.category?.name ?? null,
+    locationName: (row.location_id ? pathById.get(row.location_id) : null) ?? row.location?.name ?? null,
+    statusName: row.status?.name ?? "—",
+    imageUrl: row.image_url,
+    allottedToName: row.allotted_to ? (custodianNames.get(row.allotted_to) ?? null) : null,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/** Percent change in assets created this calendar month versus the previous one. */
+export async function getCreatedAssetTrendPercent(): Promise<number> {
+  const supabase = createClient();
+  const now = new Date();
+  const startThis = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+  const startLast = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString();
+
+  const [currentRes, previousRes] = await Promise.all([
+    supabase
+      .from("assets")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .gte("created_at", startThis),
+    supabase
+      .from("assets")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .gte("created_at", startLast)
+      .lt("created_at", startThis),
+  ]);
+
+  const current = currentRes.count ?? 0;
+  const previous = previousRes.count ?? 0;
+  if (previous === 0) {
+    return current === 0 ? 0 : 100;
+  }
+  return Math.round(((current - previous) / previous) * 100);
 }
 
 async function listAssetIdsByDocumentExpiry(
@@ -533,6 +626,7 @@ interface PublicAssetRow {
   model: string | null;
   description: string | null;
   serial_number: string | null;
+  tags: string[] | null;
   category: { name: string } | null;
   location: { name: string } | null;
   status: { name: string } | null;
@@ -577,7 +671,7 @@ export async function getPublicAssetById(id: string): Promise<PublicAsset | null
   const { data, error } = await supabase
     .from("assets")
     .select(
-      "id, name, image_url, asset_code, category_id, location_id, custom_fields, condition, brand, model, description, serial_number, category:asset_categories(name), location:locations(name), status:asset_statuses(name), company:companies(id, slug, name, logo_url, primary_color, secondary_color)",
+      "id, name, image_url, asset_code, category_id, location_id, custom_fields, condition, brand, model, description, serial_number, tags, category:asset_categories(name), location:locations(name), status:asset_statuses(name), company:companies(id, slug, name, logo_url, primary_color, secondary_color)",
     )
     .eq("id", id)
     .maybeSingle<PublicAssetRow>();
@@ -616,6 +710,7 @@ export async function getPublicAssetById(id: string): Promise<PublicAsset | null
     model: data.model,
     description: data.description,
     serialNumber: data.serial_number,
+    tags: data.tags ?? [],
     customFields,
     company: {
       id: data.company.id,

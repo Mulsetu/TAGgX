@@ -11,7 +11,7 @@ const NAV = [
 
 export function MarketingHeader() {
   return (
-    <header className="sticky top-0 z-40 border-b border-[#0F6E7A]/10 bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-[#005068]/10 bg-white/90 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
         <Link href="/" className="flex min-w-0 items-center">
           <BrandLogo
@@ -20,16 +20,16 @@ export function MarketingHeader() {
             className="h-9 w-auto max-w-[11rem] md:h-10 md:max-w-[13.5rem]"
           />
         </Link>
-        <nav className="hidden items-center gap-5 text-sm text-[#07343C]/80 md:flex">
+        <nav className="hidden items-center gap-5 text-sm text-[#003848]/80 md:flex">
           {NAV.map((item) => (
-            <Link key={item.href} href={item.href} className="hover:text-[#0F6E7A]">
+            <Link key={item.href} href={item.href} className="hover:text-[#005068]">
               {item.label}
             </Link>
           ))}
         </nav>
         <div className="flex items-center gap-2">
           <details className="relative md:hidden">
-            <summary className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md border border-[#0F6E7A]/20 text-sm font-medium text-[#0F6E7A] [&::-webkit-details-marker]:hidden">
+            <summary className="flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-md border border-[#005068]/20 text-sm font-medium text-[#005068] [&::-webkit-details-marker]:hidden">
               Menu
             </summary>
             <div className="absolute right-0 z-50 mt-2 w-48 rounded-lg border bg-white p-2 shadow-lg">
@@ -37,20 +37,20 @@ export function MarketingHeader() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="block rounded-md px-3 py-3 text-sm text-[#07343C] hover:bg-[#0F6E7A]/5"
+                  className="block rounded-md px-3 py-3 text-sm text-[#003848] hover:bg-[#005068]/5"
                 >
                   {item.label}
                 </Link>
               ))}
               <Link
                 href="/login"
-                className="mt-1 block rounded-md px-3 py-3 text-sm font-medium text-[#0F6E7A] hover:bg-[#0F6E7A]/5"
+                className="mt-1 block rounded-md px-3 py-3 text-sm font-medium text-[#005068] hover:bg-[#005068]/5"
               >
                 Sign in
               </Link>
               <Link
                 href="/demo"
-                className="mt-1 block rounded-md bg-[#0F6E7A] px-3 py-3 text-center text-sm font-medium text-white"
+                className="mt-1 block rounded-md bg-[#005068] px-3 py-3 text-center text-sm font-medium text-white"
               >
                 Book a demo
               </Link>
@@ -58,13 +58,13 @@ export function MarketingHeader() {
           </details>
           <Link
             href="/login"
-            className="inline-flex h-11 items-center rounded-md border border-[#0F6E7A]/20 px-4 text-sm font-medium text-[#0F6E7A] hover:bg-[#0F6E7A]/5"
+            className="inline-flex h-11 items-center rounded-md border border-[#005068]/20 px-4 text-sm font-medium text-[#005068] hover:bg-[#005068]/5"
           >
             Sign in
           </Link>
           <Link
             href="/demo"
-            className="hidden h-11 items-center rounded-md bg-[#0F6E7A] px-4 text-sm font-medium text-white hover:bg-[#0c5c66] sm:inline-flex"
+            className="hidden h-11 items-center rounded-md bg-[#005068] px-4 text-sm font-medium text-white hover:bg-[#003E50] sm:inline-flex"
           >
             Book a demo
           </Link>

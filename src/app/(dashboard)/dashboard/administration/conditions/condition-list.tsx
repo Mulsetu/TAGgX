@@ -62,7 +62,7 @@ function ConditionFormFields({
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="color">Color</Label>
-        <Input id="color" name="color" defaultValue={condition?.color ?? ""} placeholder="#0F6E7A" maxLength={7} />
+        <Input id="color" name="color" defaultValue={condition?.color ?? ""} placeholder="#005068" maxLength={7} />
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="sortOrder">Sort order</Label>

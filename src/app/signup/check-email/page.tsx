@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function CheckEmailPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-white text-[#07343C]">
+    <div className="flex min-h-screen flex-col bg-white text-[#003848]">
       <MarketingHeader />
       <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-4 px-4 py-16">
         <h1 className="text-2xl font-semibold tracking-tight">Check your email</h1>
@@ -21,7 +21,7 @@ export default function CheckEmailPage() {
         <p className="text-sm text-muted-foreground">
           After verifying, you&apos;ll continue to plan selection and payment if your plan requires it.
         </p>
-        <Link href="/login" className="text-sm font-medium text-[#0F6E7A] underline-offset-4 hover:underline">
+        <Link href="/login" className="text-sm font-medium text-[#005068] underline-offset-4 hover:underline">
           Back to sign in
         </Link>
       </main>

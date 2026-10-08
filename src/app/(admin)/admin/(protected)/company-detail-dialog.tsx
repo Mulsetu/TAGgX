@@ -176,7 +176,7 @@ export function CompanyDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto bg-white text-slate-900">
         <DialogHeader>
           <DialogTitle>{company.name}</DialogTitle>
           <DialogDescription>

@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isHostedAssetImage } from "@/lib/media-url";
 import { TENANT_HEADERS } from "@/lib/tenant";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { requirePermission } from "@/lib/permissions/has-permission";
@@ -24,8 +25,10 @@ import {
   getAssetFormOptions,
   getPublicAssetById,
   listAssetLocationHistory,
+  getCreatedAssetTrendPercent,
   listAssets,
   listChildAssets,
+  listRecentAssets,
   listDocumentTypes,
   listMissingRequiredDocuments,
 } from "./queries";
@@ -135,17 +138,35 @@ export async function getAssetsForList(
     warranty: rawSearchParams.warranty,
     amc: rawSearchParams.amc,
     documentExpiry: rawSearchParams.docs,
-    sort: rawSearchParams.sort,
+    sort: rawSearchParams.sort ?? "updated",
     sortDir: rawSearchParams.dir,
     includeArchived: rawSearchParams.archived,
+    pageSize: rawSearchParams.pageSize,
   });
 
   if (!parsed.success) {
-    return listAssets({}, 1, 25);
+    return listAssets({ sort: "updated" }, 1, 10);
   }
 
-  const { page, ...filters } = parsed.data;
-  return listAssets(filters, page, 25);
+  const { page, pageSize, ...filters } = parsed.data;
+  const size = pageSize === 25 || pageSize === 50 ? pageSize : 10;
+  return listAssets(filters, page, size);
+}
+
+/** Recent rows for the company dashboard table. */
+export async function getRecentAssetsForDashboard() {
+  if (!(await requireModule("assets")) || !(await requirePermission("assets", "view"))) {
+    return [];
+  }
+  return listRecentAssets(8);
+}
+
+/** Month-over-month change in newly created assets, for the dashboard stat cards. */
+export async function getInventoryTrendForDashboard(): Promise<number> {
+  if (!(await requireModule("assets")) || !(await requirePermission("assets", "view"))) {
+    return 0;
+  }
+  return getCreatedAssetTrendPercent();
 }
 
 /** For /assets/[id] — the page calls this, never queries.ts directly. */
@@ -250,16 +271,18 @@ export async function submitPublicAssetReportAction(
     return { error: "This asset could not be found." };
   }
 
-  const email = parsed.data.email.toLowerCase();
+  const email = parsed.data.email?.toLowerCase() ?? null;
   const ip = clientIpFromHeaders(headers());
   if (!consumeRateLimit(`public-report:${ip}`, 5, PUBLIC_REPORT_WINDOW_MS)) {
     return { error: "Too many reports from this network. Try again in a few minutes." };
   }
 
-  const since = new Date(Date.now() - PUBLIC_REPORT_WINDOW_MS).toISOString();
-  const recent = await countRecentPublicReports(asset.id, email, since);
-  if (recent === null || recent >= PUBLIC_REPORT_MAX_PER_WINDOW) {
-    return { error: "Too many reports from this email. Try again in a few minutes." };
+  if (email) {
+    const since = new Date(Date.now() - PUBLIC_REPORT_WINDOW_MS).toISOString();
+    const recent = await countRecentPublicReports(asset.id, email, since);
+    if (recent === null || recent >= PUBLIC_REPORT_MAX_PER_WINDOW) {
+      return { error: "Too many reports from this email. Try again in a few minutes." };
+    }
   }
 
   const result = await createPublicTicket({
@@ -478,6 +501,16 @@ async function resolveImageUrl(
 ): Promise<{ url: string | null; error?: string }> {
   const file = formData.get("image");
   if (!(file instanceof File) || file.size === 0) {
+    const link = String(formData.get("imageLink") ?? "").trim();
+    if (link) {
+      if (!/^https:\/\/\S{1,2032}$/i.test(link)) {
+        return { url: null, error: "Enter a valid https link, or leave the Drive link blank." };
+      }
+      return { url: link };
+    }
+    if (existingImageUrl && !isHostedAssetImage(existingImageUrl) && /^https?:\/\//i.test(existingImageUrl)) {
+      return { url: null };
+    }
     return { url: existingImageUrl ?? null };
   }
 

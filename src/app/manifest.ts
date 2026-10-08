@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { TAGX_ICON_SRC } from "@/lib/brand";
+import { TAGX_ICON_SRC, TAGX_TEAL } from "@/lib/brand";
 import { SITE_DESCRIPTION, SITE_NAME } from "@/lib/site";
 
 export default function manifest(): MetadataRoute.Manifest {
@@ -10,7 +10,7 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",
-    theme_color: "#0F6E7A",
+    theme_color: TAGX_TEAL,
     icons: [
       { src: TAGX_ICON_SRC, sizes: "192x192", type: "image/png", purpose: "any" },
       { src: TAGX_ICON_SRC, sizes: "512x512", type: "image/png", purpose: "any" },

@@ -68,17 +68,9 @@ function WidgetRows({
   );
 }
 
-export function WorkspaceSettingsForm({
-  settings,
-  roles,
-}: {
-  settings: CompanyWorkspaceSettings;
-  roles: { id: string; name: string }[];
-}) {
+function useSettingsForm() {
   const [state, setState] = useState<UpdateWorkspaceSettingsState>(initialState);
   const [isPending, startTransition] = useTransition();
-  const planLocked = settings.planModules !== null;
-  const allowed = new Set(settings.planModules ?? FEATURE_MODULES);
 
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
@@ -87,23 +79,33 @@ export function WorkspaceSettingsForm({
     });
   }
 
+  return { state, isPending, handleSubmit };
+}
+
+function SaveNote({ state }: { state: UpdateWorkspaceSettingsState }) {
   return (
-    <form action={handleSubmit} className="flex flex-col gap-6 rounded-lg border p-4">
+    <>
+      {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
+      {state.success ? <p className="text-sm text-emerald-600">Saved.</p> : null}
+    </>
+  );
+}
+
+export function ModulesForm({ settings }: { settings: CompanyWorkspaceSettings }) {
+  const { state, isPending, handleSubmit } = useSettingsForm();
+  const planLocked = settings.planModules !== null;
+  const allowed = new Set(settings.planModules ?? FEATURE_MODULES);
+
+  return (
+    <form action={handleSubmit} className="flex max-w-2xl flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5">
+      <input type="hidden" name="intent" value="modules" />
       <div>
-        <h2 className="text-sm font-medium">Workspace configuration</h2>
-        <p className="text-xs text-muted-foreground">
-          Modules, fields, workflows, and dashboard widgets for this company. Disabled modules are
-          hidden in the UI and blocked on the server. Plan restrictions cannot be overridden.
+        <h2 className="text-base font-semibold text-slate-900">Modules</h2>
+        <p className="text-sm text-slate-500">
+          Turn product areas on or off for this workspace. A module that is off is hidden and blocked on the server. Your plan still decides what can be turned on.
         </p>
       </div>
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="assetCodeFormat">Asset code format</Label>
-        <Input id="assetCodeFormat" name="assetCodeFormat" defaultValue={settings.assetCodeFormat} required />
-        <p className="text-xs text-muted-foreground">Must include {"{SEQ:05d}"}. Category prefixes override this when set.</p>
-      </div>
-
-      <section id="modules" className="flex flex-col gap-3 scroll-mt-20">
-        <h3 className="text-sm font-medium">Modules</h3>
+      <div className="flex flex-col gap-3">
         {FEATURE_MODULES.map((module) => {
           const lockedOut = planLocked && !allowed.has(module);
           return (
@@ -117,15 +119,58 @@ export function WorkspaceSettingsForm({
               />
               <span>
                 <span className="font-medium">{FEATURE_MODULE_LABELS[module]}</span>
-                <span className="block text-xs text-muted-foreground">
+                <span className="block text-xs text-slate-500">
                   {lockedOut ? "Not included in your plan." : FEATURE_MODULE_DESCRIPTIONS[module]}
                 </span>
               </span>
             </label>
           );
         })}
-      </section>
+      </div>
+      <SaveNote state={state} />
+      <Button type="submit" disabled={isPending} className="self-start">
+        {isPending ? "Saving..." : "Save modules"}
+      </Button>
+    </form>
+  );
+}
 
+export function DashboardForm({ settings }: { settings: CompanyWorkspaceSettings }) {
+  const { state, isPending, handleSubmit } = useSettingsForm();
+
+  return (
+    <form action={handleSubmit} className="flex flex-col gap-6 rounded-xl border border-slate-200 bg-white p-5">
+      <input type="hidden" name="intent" value="dashboard" />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Company dashboard</h2>
+          <p className="text-sm text-slate-500">
+            Widgets on the home dashboard. A person only sees the ones their role is allowed to open.
+          </p>
+        </div>
+        <Button type="submit" name="resetDashboard" value="1" variant="outline" size="sm" disabled={isPending}>
+          Reset to default
+        </Button>
+      </div>
+      <WidgetRows widgets={settings.dashboardWidgets} namePrefix="widget_" />
+      <SaveNote state={state} />
+      <Button type="submit" disabled={isPending} className="self-start">
+        {isPending ? "Saving..." : "Save dashboard"}
+      </Button>
+    </form>
+  );
+}
+
+export function WorkspaceDetailsForm({ settings }: { settings: CompanyWorkspaceSettings }) {
+  const { state, isPending, handleSubmit } = useSettingsForm();
+
+  return (
+    <form action={handleSubmit} className="flex max-w-3xl flex-col gap-5 rounded-xl border border-slate-200 bg-white p-5">
+      <input type="hidden" name="intent" value="workspace" />
+      <div>
+        <h2 className="text-base font-semibold text-slate-900">Workspace</h2>
+        <p className="text-sm text-slate-500">Optional workflows, and the lists used on asset forms. Asset codes are set from the category prefix.</p>
+      </div>
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-medium">Optional workflows</h3>
         {WORKFLOW_KEYS.map((key) => (
@@ -138,103 +183,12 @@ export function WorkspaceSettingsForm({
             />
             <span>
               <span className="font-medium">{WORKFLOW_LABELS[key]}</span>
-              <span className="block text-xs text-muted-foreground">{WORKFLOW_DESCRIPTIONS[key]}</span>
+              <span className="block text-xs text-slate-500">{WORKFLOW_DESCRIPTIONS[key]}</span>
             </span>
           </label>
         ))}
       </section>
-
-      <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">Asset fields</h3>
-        <p className="text-xs text-muted-foreground">
-          Hide, rename, or require built-in fields. Name, category, location, and status stay required.
-        </p>
-        <div className="overflow-x-auto rounded-md border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="p-2">Field</th>
-                <th className="p-2">Label</th>
-                <th className="p-2">On</th>
-                <th className="p-2">Required</th>
-                <th className="p-2">Order</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ASSET_FIELD_KEYS.map((key) => {
-                const field = settings.assetFieldConfig[key];
-                return (
-                  <tr key={key} className="border-b last:border-0">
-                    <td className="p-2 text-muted-foreground">{ASSET_FIELD_LABELS[key]}</td>
-                    <td className="p-2">
-                      <Input name={`field_label_${key}`} defaultValue={field?.label ?? ASSET_FIELD_LABELS[key]} />
-                    </td>
-                    <td className="p-2">
-                      <input type="checkbox" name={`field_enabled_${key}`} defaultChecked={field?.enabled !== false} />
-                    </td>
-                    <td className="p-2">
-                      <input type="checkbox" name={`field_required_${key}`} defaultChecked={field?.required === true} />
-                    </td>
-                    <td className="p-2">
-                      <Input
-                        name={`field_order_${key}`}
-                        type="number"
-                        className="w-20"
-                        defaultValue={field?.order ?? 0}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="dashboard" className="flex flex-col gap-3 scroll-mt-20">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-medium">Company dashboard</h3>
-            <p className="text-xs text-muted-foreground">
-              Default widgets for Company Admins and roles without a custom layout. Users still only
-              see widgets they are entitled to.
-            </p>
-          </div>
-          <Button type="submit" name="resetDashboard" value="1" variant="outline" size="sm" disabled={isPending}>
-            Reset to default
-          </Button>
-        </div>
-        <WidgetRows widgets={settings.dashboardWidgets} namePrefix="widget_" />
-      </section>
-
-      {roles.length > 0 ? (
-        <section className="flex flex-col gap-4">
-          <div>
-            <h3 className="text-sm font-medium">Role dashboards</h3>
-            <p className="text-xs text-muted-foreground">
-              Optional layouts per role. Leave off to inherit the company dashboard.
-            </p>
-          </div>
-          <input type="hidden" name="layoutRoleIds" value={roles.map((role) => role.id).join(",")} />
-          {roles.map((role) => {
-            const custom = settings.dashboardLayouts.roles[role.id];
-            return (
-              <details key={role.id} className="rounded-md border p-3" open={Boolean(custom)}>
-                <summary className="cursor-pointer text-sm font-medium">{role.name}</summary>
-                <label className="mt-3 flex items-center gap-2 text-sm">
-                  <input type="checkbox" name={`role_layout_on_${role.id}`} defaultChecked={Boolean(custom)} />
-                  Use a custom layout for this role
-                </label>
-                <div className="mt-3">
-                  <WidgetRows widgets={custom ?? settings.dashboardWidgets} namePrefix={`role_${role.id}_widget_`} />
-                </div>
-              </details>
-            );
-          })}
-        </section>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="departments">Departments (one per line)</Label>
           <Textarea id="departments" name="departments" rows={5} defaultValue={settings.departments.join("\n")} />
@@ -249,11 +203,69 @@ export function WorkspaceSettingsForm({
           />
         </div>
       </div>
-
-      {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
-      {state.success ? <p className="text-sm text-emerald-600">Saved.</p> : null}
+      <SaveNote state={state} />
       <Button type="submit" disabled={isPending} className="self-start">
-        {isPending ? "Saving..." : "Save configuration"}
+        {isPending ? "Saving..." : "Save workspace"}
+      </Button>
+    </form>
+  );
+}
+
+export function BuiltinFieldsForm({ settings }: { settings: CompanyWorkspaceSettings }) {
+  const { state, isPending, handleSubmit } = useSettingsForm();
+
+  return (
+    <form action={handleSubmit} className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5">
+      <input type="hidden" name="intent" value="fields" />
+      <div>
+        <h2 className="text-base font-semibold text-slate-900">Built-in fields</h2>
+        <p className="text-sm text-slate-500">
+          Hide, rename, or require fields that already exist on every asset. Name, category, location, and status stay required.
+        </p>
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs text-slate-500">
+              <th className="p-2">Field</th>
+              <th className="p-2">Label</th>
+              <th className="p-2">On</th>
+              <th className="p-2">Required</th>
+              <th className="p-2">Order</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ASSET_FIELD_KEYS.map((key) => {
+              const field = settings.assetFieldConfig[key];
+              return (
+                <tr key={key} className="border-b last:border-0">
+                  <td className="p-2 text-slate-500">{ASSET_FIELD_LABELS[key]}</td>
+                  <td className="p-2">
+                    <Input name={`field_label_${key}`} defaultValue={field?.label ?? ASSET_FIELD_LABELS[key]} />
+                  </td>
+                  <td className="p-2">
+                    <input type="checkbox" name={`field_enabled_${key}`} defaultChecked={field?.enabled !== false} />
+                  </td>
+                  <td className="p-2">
+                    <input type="checkbox" name={`field_required_${key}`} defaultChecked={field?.required === true} />
+                  </td>
+                  <td className="p-2">
+                    <Input
+                      name={`field_order_${key}`}
+                      type="number"
+                      className="w-20"
+                      defaultValue={field?.order ?? 0}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <SaveNote state={state} />
+      <Button type="submit" disabled={isPending} className="self-start">
+        {isPending ? "Saving..." : "Save built-in fields"}
       </Button>
     </form>
   );

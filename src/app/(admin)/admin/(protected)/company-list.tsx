@@ -29,7 +29,7 @@ export function CompanyList({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="overflow-x-auto rounded-lg border bg-white text-slate-900">
         <Table>
           <TableHeader>
             <TableRow>

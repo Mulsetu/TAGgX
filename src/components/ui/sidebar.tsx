@@ -577,7 +577,10 @@ const SidebarMenuButton = React.forwardRef<
       />
     )
 
-    if (!tooltip) {
+    // Tooltips are only useful in the collapsed icon rail. Wrapping the
+    // expanded item hides the link's click handler, so the browser follows
+    // the href as a full page load instead of a client navigation.
+    if (!tooltip || state !== "collapsed" || isMobile) {
       return button
     }
 

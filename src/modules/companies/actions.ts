@@ -4,19 +4,21 @@ import "server-only";
 import ExcelJS from "exceljs";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { isValidTenantSlug, TENANT_HEADERS } from "@/lib/tenant";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
 import { createClient } from "@/lib/supabase/server";
 import { sendUserInviteEmail, sendWorkspaceDeletionRequestEmail } from "@/lib/email";
+import { getRequestSiteUrl } from "@/lib/request-origin";
 import { getSiteUrl } from "@/lib/site";
 import { createSystemAdminRole, seedDefaultCompanyRoles } from "@/modules/roles/mutations";
 import { seedDefaultAssetStatuses } from "@/modules/statuses/mutations";
 import { seedDefaultAssetConditions } from "@/modules/conditions/mutations";
 import { uploadFileToR2 } from "@/modules/storage/mutations";
-import { createCompanySchema, requestDeletionSchema, slugSchema, updateCompanyBrandingSchema, updateCompanySchema, updateWorkspaceSettingsSchema } from "./validation";
-import { getCompanyBySlug, getCompanyById, getCompanyWorkspaceSettings, getUserIdsForCompany, getWorkspaceExportData, listCompanies } from "./queries";
+import { createCompanySchema, requestDeletionSchema, slugSchema, updateCompanyBrandingSchema, updateCompanySchema } from "./validation";
+import { getCompanyBySlug, getCompanyById, getCompanyByIdAdmin, getCompanyWorkspaceSettings, getUserIdsForCompany, getWorkspaceExportData, listCompanies } from "./queries";
 import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/queries";
 import { applyPlanLimitsToCompany, insertBillingPayment, upsertCompanySubscription } from "@/modules/billing/mutations";
 import {
@@ -57,7 +59,6 @@ import {
   parseDashboardWidgets,
   parseStringCatalog,
   parseWorkflowConfig,
-  type DashboardLayouts,
   type DashboardWidgetConfig,
   type DashboardWidgetSize,
 } from "@/lib/permissions/workspace-config";
@@ -78,26 +79,30 @@ export async function getCompanyForLogin(slug: string): Promise<CompanyBranding 
 }
 
 /** Landing /login: turn a workspace slug into /{slug}/login. */
-export async function resolveWorkspaceLogin(
-  raw: string,
-): Promise<{ error: string } | { redirectPath: string }> {
+export async function resolveWorkspaceLogin(formData: FormData): Promise<never> {
   const ip = clientIpFromHeaders(headers());
+  const raw = String(formData.get("slug") ?? "");
+  const normalized = raw.trim().toLowerCase().replace(/^\/+|\/+$/g, "").replace(/\/login$/, "");
+
   if (!consumeRateLimit(`workspace-login:${ip}`, 20, 60_000)) {
-    return { error: "Try again later." };
+    const params = new URLSearchParams({ error: "rate" });
+    if (isValidTenantSlug(normalized)) {
+      params.set("slug", normalized);
+    }
+    redirect(`/login?${params.toString()}`);
   }
 
-  const normalized = raw.trim().toLowerCase().replace(/^\/+|\/+$/g, "").replace(/\/login$/, "");
   const parsed = slugSchema.safeParse(normalized);
   if (!parsed.success || !isValidTenantSlug(parsed.data)) {
-    return { error: "Enter your workspace URL, like acme." };
+    redirect("/login?error=slug");
   }
 
   const company = await getCompanyBySlug(parsed.data);
   if (!company) {
-    return { error: "We couldn't find that workspace." };
+    redirect(`/login?error=missing&slug=${encodeURIComponent(parsed.data)}`);
   }
 
-  return { redirectPath: `/${parsed.data}/login` };
+  redirect(`/${parsed.data}/login`);
 }
 
 /**
@@ -107,12 +112,34 @@ export async function resolveWorkspaceLogin(
  * client-supplied value.
  */
 export async function getCurrentCompany(): Promise<CompanyBranding | null> {
-  const companyId = headers().get(TENANT_HEADERS.companyId);
-  if (!companyId) {
+  const headerId = headers().get(TENANT_HEADERS.companyId);
+  if (headerId) {
+    const fromHeader = await getCompanyById(headerId);
+    if (fromHeader) {
+      return fromHeader;
+    }
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
     return null;
   }
 
-  return getCompanyById(companyId);
+  const { data: profile } = await supabase
+    .from("users")
+    .select("company_id")
+    .eq("id", user.id)
+    .maybeSingle<{ company_id: string | null }>();
+
+  const companyId = profile?.company_id;
+  if (!companyId || (headerId && headerId !== companyId)) {
+    return null;
+  }
+
+  return (await getCompanyById(companyId)) ?? (await getCompanyByIdAdmin(companyId));
 }
 
 /** Every company on the platform. Super-admin only — see /admin. */
@@ -278,8 +305,7 @@ export async function createCompanyAction(
     return { error: inviteResult.error };
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const inviteUrl = `${appUrl}/invite/${inviteResult.token}`;
+  const inviteUrl = `${getRequestSiteUrl()}/invite/${inviteResult.token}`;
 
   const emailResult = await sendUserInviteEmail({
     to: parsed.data.adminEmail,
@@ -458,24 +484,6 @@ function widgetsFromForm(formData: FormData, prefix: string, defaults: Dashboard
   return widgets;
 }
 
-const ROLE_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function layoutsFromForm(formData: FormData): DashboardLayouts {
-  const roleIds = String(formData.get("layoutRoleIds") ?? "")
-    .split(",")
-    .map((id) => id.trim())
-    .filter((id) => ROLE_ID_RE.test(id));
-  const roles: DashboardLayouts["roles"] = {};
-  for (const roleId of roleIds) {
-    if (formData.get(`role_layout_on_${roleId}`) !== "on") {
-      continue;
-    }
-    roles[roleId] = widgetsFromForm(formData, `role_${roleId}_widget_`, parseDashboardWidgets(null));
-  }
-  return { roles };
-}
-
 export async function updateWorkspaceSettingsAction(
   _prevState: UpdateWorkspaceSettingsState,
   formData: FormData,
@@ -488,59 +496,72 @@ export async function updateWorkspaceSettingsAction(
     return { error: "Could not determine your company." };
   }
 
-  const parsed = updateWorkspaceSettingsSchema.safeParse({
-    assetCodeFormat: formData.get("assetCodeFormat"),
-  });
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
-  }
+  const stored = await getCompanyWorkspaceSettings(companyId);
+  let assetCodeFormat = stored.assetCodeFormat;
+  let enabledModules = parseEnabledModules(stored.enabledModules);
+  let assetFieldConfig = parseAssetFieldConfig(stored.assetFieldConfig);
+  let dashboardWidgets = parseDashboardWidgets(stored.dashboardWidgets);
+  let dashboardLayouts = parseDashboardLayouts(stored.dashboardLayouts);
+  let workflowConfig = parseWorkflowConfig(stored.workflowConfig);
+  let departmentCatalog = parseStringCatalog(stored.departmentCatalog);
+  let disposalMethods = parseStringCatalog(stored.disposalMethods);
 
-  const subscription = await getSubscriptionForCompany(companyId);
-  const plan = subscription ? await getPlanById(subscription.planId) : null;
-  const planModules = parsePlanModules(plan?.includedModules ?? null);
-  const requested: EnabledModules = parseEnabledModules(null);
-  for (const key of FEATURE_MODULES) {
-    requested[key] = formData.get(`module_${key}`) === "on";
-  }
-  const enabledModules = clampModulesToPlan(requested, planModules);
-  if (planModules) {
+  const intent = String(formData.get("intent") ?? "");
+
+  if (intent === "workspace") {
+    workflowConfig = parseWorkflowConfig(null);
+    for (const key of WORKFLOW_KEYS) {
+      workflowConfig[key] = formData.get(`workflow_${key}`) === "on";
+    }
+    departmentCatalog = parseCatalogText(String(formData.get("departments") ?? ""));
+    disposalMethods = parseCatalogText(String(formData.get("disposalMethods") ?? ""));
+  } else if (intent === "modules") {
+    const subscription = await getSubscriptionForCompany(companyId);
+    const plan = subscription ? await getPlanById(subscription.planId) : null;
+    const planModules = parsePlanModules(plan?.includedModules ?? null);
+    const requested: EnabledModules = parseEnabledModules(null);
     for (const key of FEATURE_MODULES) {
-      if (requested[key] && !planModules.includes(key)) {
-        return { error: `${key} is not included in your plan.` };
+      requested[key] = formData.get(`module_${key}`) === "on";
+    }
+    if (planModules) {
+      for (const key of FEATURE_MODULES) {
+        if (requested[key] && !planModules.includes(key)) {
+          return { error: `${key} is not included in your plan.` };
+        }
       }
     }
-  }
-
-  const fieldConfig = parseAssetFieldConfig(null);
-  for (const key of ASSET_FIELD_KEYS) {
-    fieldConfig[key] = {
-      enabled: formData.get(`field_enabled_${key}`) === "on",
-      required: formData.get(`field_required_${key}`) === "on",
-      label: String(formData.get(`field_label_${key}`) ?? "").trim() || fieldConfig[key].label,
-      order: Number(formData.get(`field_order_${key}`) ?? fieldConfig[key].order) || fieldConfig[key].order,
-    };
-  }
-
-  const resetDashboard = formData.get("resetDashboard") === "1";
-  const widgets = resetDashboard
-    ? parseDashboardWidgets(null)
-    : widgetsFromForm(formData, "widget_", parseDashboardWidgets(null));
-  const layouts = resetDashboard ? parseDashboardLayouts(null) : layoutsFromForm(formData);
-
-  const workflows = parseWorkflowConfig(null);
-  for (const key of WORKFLOW_KEYS) {
-    workflows[key] = formData.get(`workflow_${key}`) === "on";
+    enabledModules = clampModulesToPlan(requested, planModules);
+  } else if (intent === "dashboard") {
+    const resetDashboard = formData.get("resetDashboard") === "1";
+    dashboardWidgets = resetDashboard
+      ? parseDashboardWidgets(null)
+      : widgetsFromForm(formData, "widget_", parseDashboardWidgets(null));
+    if (resetDashboard) {
+      dashboardLayouts = parseDashboardLayouts(null);
+    }
+  } else if (intent === "fields") {
+    assetFieldConfig = parseAssetFieldConfig(null);
+    for (const key of ASSET_FIELD_KEYS) {
+      assetFieldConfig[key] = {
+        enabled: formData.get(`field_enabled_${key}`) === "on",
+        required: formData.get(`field_required_${key}`) === "on",
+        label: String(formData.get(`field_label_${key}`) ?? "").trim() || assetFieldConfig[key].label,
+        order: Number(formData.get(`field_order_${key}`) ?? assetFieldConfig[key].order) || assetFieldConfig[key].order,
+      };
+    }
+  } else {
+    return { error: "Unknown settings section." };
   }
 
   const result = await upsertCompanyWorkspaceSettings(companyId, {
-    assetCodeFormat: parsed.data.assetCodeFormat,
+    assetCodeFormat,
     enabledModules,
-    assetFieldConfig: fieldConfig,
-    dashboardWidgets: widgets,
-    dashboardLayouts: layouts,
-    workflowConfig: workflows,
-    departmentCatalog: parseCatalogText(String(formData.get("departments") ?? "")),
-    disposalMethods: parseCatalogText(String(formData.get("disposalMethods") ?? "")),
+    assetFieldConfig,
+    dashboardWidgets,
+    dashboardLayouts,
+    workflowConfig,
+    departmentCatalog,
+    disposalMethods,
   });
   if (result.error) {
     return { error: result.error };
@@ -550,9 +571,10 @@ export async function updateWorkspaceSettingsAction(
     action: "settings.updated",
     entityType: "company_settings",
     entityId: companyId,
-    newValues: { assetCodeFormat: parsed.data.assetCodeFormat, enabledModules },
+    newValues: { intent, assetCodeFormat, enabledModules },
   });
   revalidatePath("/dashboard/administration/settings");
+  revalidatePath("/dashboard/administration/fields");
   revalidatePath("/dashboard");
   revalidatePath("/", "layout");
   return { error: null, success: true };

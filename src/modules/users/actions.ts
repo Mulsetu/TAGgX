@@ -3,9 +3,10 @@
 import "server-only";
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { safePostLoginPath } from "@/lib/paths";
-import { TENANT_SLUG_COOKIE, tenantLoginPathFromCookie } from "@/lib/tenant";
+import { isValidTenantSlug, TENANT_SLUG_COOKIE, tenantLoginPathFromCookie } from "@/lib/tenant";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { getCompanyBySlug, getCompanySuspendedAt } from "@/modules/companies/queries";
 import { createCompanyInvite } from "@/modules/companies/mutations";
@@ -15,6 +16,7 @@ import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { sendUserInviteEmail } from "@/lib/email";
 import { writeAuditLog } from "@/lib/audit-log";
+import { getRequestSiteUrl } from "@/lib/request-origin";
 import { getSiteUrl } from "@/lib/site";
 import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/queries";
 import {
@@ -27,7 +29,6 @@ import {
 import { getInviteByToken, getUserWithRole, listCompanyUsers, listPendingInvites } from "./queries";
 import {
   acceptCompanyInvite,
-  countCompanyAdmins,
   insertOnboardingUser,
   setUserActive,
   setUserCompanyAdmin,
@@ -43,7 +44,6 @@ import type {
   InviteUserFormState,
   PendingInviteSummary,
   ResetPasswordState,
-  SignInState,
   UserActionState,
 } from "./types";
 
@@ -52,40 +52,48 @@ export async function getInviteForAcceptPage(token: string): Promise<InviteDetai
   return getInviteByToken(token);
 }
 
+function redirectToTenantLogin(slug: string, nextPath: string | null, code: string): never {
+  const params = new URLSearchParams({ error: code });
+  const next = safePostLoginPath(nextPath ?? undefined);
+  if (next) {
+    params.set("next", next);
+  }
+  redirect(`/${slug}/login?${params.toString()}`);
+}
+
 /**
- * Signs a user into a specific company's tenant login page. `slug` comes
- * from the page via Function.bind (see login-form.tsx), not from
- * `formData` — either way it's never trusted on its own: after Supabase
- * Auth accepts the credentials, the authenticated user's own
- * `public.users.company_id` is checked against the resolved company's id.
- * A valid password for the wrong tenant's login page is rejected, not just
- * a valid-looking slug.
+ * Signs a user into a specific company's tenant login page. `slug` is bound
+ * by the page, not taken from the form, then checked against the signed-in
+ * user's own company. Success and failure both redirect, so the password
+ * never lands in the address bar.
  */
-export async function signIn(
-  slug: string,
-  nextPath: string | null,
-  _prevState: SignInState,
-  formData: FormData,
-): Promise<SignInState> {
+export async function signIn(slug: string, nextPath: string | null, formData: FormData): Promise<never> {
+  const fail = (code: string): never => {
+    if (!isValidTenantSlug(slug)) {
+      redirect("/login?error=missing");
+    }
+    redirectToTenantLogin(slug, nextPath, code);
+  };
+
   const parsed = signInSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
   });
 
   if (!parsed.success) {
-    return { error: "Enter a valid email and password." };
+    return fail("invalid");
   }
 
   // In-process only (single instance). Multi-instance needs Redis — TAGX-019.
   // Successful logins still consume a slot; the window does not reset on success.
   const loginKey = `login:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}:${slug}`;
   if (!consumeRateLimit(loginKey, 10, 15 * 60 * 1000)) {
-    return { error: "Try again later." };
+    return fail("rate");
   }
 
   const company = await getCompanyBySlug(slug);
   if (!company) {
-    return { error: "This company could not be found." };
+    return fail("missing");
   }
 
   const supabase = createClient();
@@ -95,7 +103,7 @@ export async function signIn(
   );
 
   if (authError || !authData.user) {
-    return { error: "Invalid email or password." };
+    return fail("invalid");
   }
 
   const { data: profile } = await supabase
@@ -106,22 +114,22 @@ export async function signIn(
 
   if (!profile?.company_id) {
     await supabase.auth.signOut();
-    return { error: "Finish creating your workspace before signing in here." };
+    return fail("onboarding");
   }
 
   if (profile.company_id !== company.id) {
     await supabase.auth.signOut();
-    return { error: "No account was found for this company." };
+    return fail("mismatch");
   }
 
   if (!profile.is_active) {
     await supabase.auth.signOut();
-    return { error: "Invalid email or password." };
+    return fail("invalid");
   }
 
   if (await getCompanySuspendedAt(company.id)) {
     await supabase.auth.signOut();
-    return { error: "This workspace is unavailable." };
+    return fail("suspended");
   }
 
   cookies().set(TENANT_SLUG_COOKIE, slug, {
@@ -131,7 +139,7 @@ export async function signIn(
     maxAge: 60 * 60 * 24 * 400,
   });
 
-  return { error: null, redirectPath: safePostLoginPath(nextPath ?? undefined) ?? "/dashboard" };
+  redirect(safePostLoginPath(nextPath ?? undefined) ?? "/dashboard");
 }
 
 /**
@@ -140,22 +148,23 @@ export async function signIn(
  * afterward is against `platform_admins`, not `public.users.company_id` —
  * a valid password for a regular tenant account must not grant access here.
  */
-export async function signInSuperAdmin(
-  _prevState: SignInState,
-  formData: FormData,
-): Promise<SignInState> {
+export async function signInSuperAdmin(formData: FormData): Promise<never> {
+  const fail = (code: string): never => {
+    redirect(`/admin/login?error=${code}`);
+  };
+
   const parsed = signInSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
   });
 
   if (!parsed.success) {
-    return { error: "Enter a valid email and password." };
+    return fail("invalid");
   }
 
   const adminLoginKey = `admin-login:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}`;
   if (!consumeRateLimit(adminLoginKey, 10, 15 * 60 * 1000)) {
-    return { error: "Try again later." };
+    return fail("rate");
   }
 
   const supabase = createClient();
@@ -165,15 +174,15 @@ export async function signInSuperAdmin(
   );
 
   if (authError || !authData.user) {
-    return { error: "Invalid email or password." };
+    return fail("invalid");
   }
 
   if (!(await checkSuperAdmin(supabase, authData.user.id))) {
     await supabase.auth.signOut();
-    return { error: "This account is not a platform administrator." };
+    return fail("forbidden");
   }
 
-  return { error: null, redirectPath: "/admin" };
+  redirect("/admin");
 }
 
 /**
@@ -541,8 +550,7 @@ export async function inviteCompanyUserAction(
     return { error: inviteResult.error };
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const inviteUrl = `${appUrl}/invite/${inviteResult.token}`;
+  const inviteUrl = `${getRequestSiteUrl()}/invite/${inviteResult.token}`;
 
   const emailResult = await sendUserInviteEmail({
     to: parsed.data.email,
@@ -621,10 +629,7 @@ export async function toggleUserActiveAction(userId: string, isActive: boolean):
     .eq("id", userId)
     .maybeSingle<{ is_company_admin: boolean }>();
   if (!isActive && target?.is_company_admin) {
-    const remaining = await countCompanyAdmins();
-    if (remaining <= 1) {
-      return { error: "Keep at least one Company Admin active." };
-    }
+    return { error: "The company admin can't be deactivated." };
   }
 
   const result = await setUserActive(userId, isActive);
@@ -656,28 +661,8 @@ export async function setCompanyAdminAction(userId: string, isCompanyAdmin: bool
     return { error: "Only a Company Admin can grant this access." };
   }
 
-  const supabase = createClient();
-  const {
-    data: { user: currentUser },
-  } = await supabase.auth.getUser();
-
-  if (!isCompanyAdmin && currentUser?.id === userId) {
-    const remaining = await countCompanyAdmins();
-    if (remaining <= 1) {
-      return { error: "Keep at least one Company Admin." };
-    }
-  }
-
   if (!isCompanyAdmin) {
-    const remaining = await countCompanyAdmins();
-    const { data: target } = await supabase
-      .from("users")
-      .select("is_company_admin")
-      .eq("id", userId)
-      .maybeSingle<{ is_company_admin: boolean }>();
-    if (target?.is_company_admin && remaining <= 1) {
-      return { error: "Keep at least one Company Admin." };
-    }
+    return { error: "The company admin role can't be revoked." };
   }
 
   const result = await setUserCompanyAdmin(userId, isCompanyAdmin);

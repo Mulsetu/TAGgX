@@ -16,12 +16,12 @@ export function ProductShot({
 }) {
   return (
     <figure className={cn("relative", className)}>
-      <div className="overflow-hidden rounded-2xl border border-[#0F6E7A]/12 bg-white shadow-[0_28px_80px_-28px_rgba(7,52,60,0.45)]">
-        <div className="flex items-center gap-2 border-b border-[#0F6E7A]/10 bg-[#f4faf8] px-4 py-2.5">
+      <div className="overflow-hidden rounded-2xl border border-[#005068]/12 bg-white shadow-[0_28px_80px_-28px_rgba(0,56,72,0.45)]">
+        <div className="flex items-center gap-2 border-b border-[#005068]/10 bg-[#F2F7F8] px-4 py-2.5">
           <span className="size-2.5 rounded-full bg-[#E57373]" aria-hidden />
           <span className="size-2.5 rounded-full bg-[#FFD54F]" aria-hidden />
           <span className="size-2.5 rounded-full bg-[#81C784]" aria-hidden />
-          <span className="ml-2 truncate font-mono text-[11px] text-[#07343C]/40">tagx · workspace</span>
+          <span className="ml-2 truncate font-mono text-[11px] text-[#003848]/40">tagx · workspace</span>
         </div>
         <Image
           src={src}
@@ -34,7 +34,7 @@ export function ProductShot({
         />
       </div>
       {caption ? (
-        <figcaption className="mt-3 text-center text-sm text-[#07343C]/60">{caption}</figcaption>
+        <figcaption className="mt-3 text-center text-sm text-[#003848]/60">{caption}</figcaption>
       ) : null}
     </figure>
   );

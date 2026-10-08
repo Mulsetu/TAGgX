@@ -59,7 +59,7 @@ export function NotificationBell({ initialUnreadCount }: { initialUnreadCount: n
   return (
     <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative h-8 w-8">
+        <Button variant="ghost" size="icon" className="relative size-10 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50">
           <Bell className="h-4 w-4" />
           {unreadCount > 0 ? (
             <span className="absolute right-1 top-1 flex h-2 w-2 rounded-full bg-destructive" />

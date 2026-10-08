@@ -34,7 +34,7 @@ export function AuditTagVerifyForm({ context }: { context: AuditTagContext }) {
   }
 
   return (
-    <form action={handleSubmit} className="flex flex-col gap-3 rounded-lg border p-4">
+    <form action={handleSubmit} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-sm">
       <div>
         <h2 className="text-sm font-medium">Verify in audit</h2>
         <p className="text-xs text-muted-foreground">
@@ -116,7 +116,12 @@ export function AuditTagVerifyForm({ context }: { context: AuditTagContext }) {
         </p>
       ) : null}
       {state.success ? <p className="text-sm text-emerald-600">{state.success}</p> : null}
-      <Button type="submit" disabled={isPending} size="touch">
+      <Button
+        type="submit"
+        disabled={isPending}
+        size="touch"
+        className="bg-[hsl(var(--brand-primary))] text-[hsl(var(--sidebar-foreground))] hover:bg-[hsl(var(--brand-primary))]/90"
+      >
         {isPending ? "Recording..." : "Record in this audit"}
       </Button>
     </form>

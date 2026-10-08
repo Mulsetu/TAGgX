@@ -1,4 +1,5 @@
 import "server-only";
+import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import type { CompanyBranding, CompanySummary, WorkspaceExportSheet } from "./types";
@@ -82,24 +83,40 @@ interface CompanyEmailRow {
 
 /**
  * Every company on the platform, for the super-admin company list. Uses
- * the session-bound client deliberately, not the admin client: the
- * `companies_super_admin_bypass` RLS policy already lets an authenticated
- * super admin see every row, so there's no need to step outside RLS here.
+ * the service-role client after the super-admin check. The session client
+ * was returning an empty list whenever RLS or a missing optional column
+ * rejected the select, so /admin showed no company information.
  *
  * Admin email is the earliest accepted user on that company, falling
  * back to the earliest invite if nobody has signed in yet.
  */
 export async function listCompanies(): Promise<CompanySummary[]> {
-  const supabase = createClient();
+  if (!(await isCurrentUserSuperAdmin())) {
+    return [];
+  }
+
+  const supabase = createAdminClient();
+  const columns =
+    "id, name, slug, is_dedicated_infra, suspended_at, created_at, deletion_requested_at";
+  const coreColumns = "id, name, slug, is_dedicated_infra, suspended_at, created_at";
 
   // Explicit cap: PostgREST's own default row limit is a project setting,
   // not something this code should depend on silently.
-  const companiesRes = await supabase
+  let companiesRes = await supabase
     .from("companies")
-    .select("id, name, slug, is_dedicated_infra, suspended_at, created_at, deletion_requested_at")
+    .select(columns)
     .order("created_at", { ascending: false })
     .limit(1000)
     .returns<CompanySummaryRow[]>();
+
+  if (companiesRes.error) {
+    companiesRes = await supabase
+      .from("companies")
+      .select(coreColumns)
+      .order("created_at", { ascending: false })
+      .limit(1000)
+      .returns<CompanySummaryRow[]>();
+  }
 
   if (companiesRes.error || !companiesRes.data) {
     return [];
@@ -146,7 +163,7 @@ export async function listCompanies(): Promise<CompanySummary[]> {
     isDedicatedInfra: row.is_dedicated_infra,
     suspendedAt: row.suspended_at,
     createdAt: row.created_at,
-    deletionRequestedAt: row.deletion_requested_at,
+    deletionRequestedAt: row.deletion_requested_at ?? null,
   }));
 }
 
@@ -182,39 +199,49 @@ export async function getUserIdsForCompany(companyId: string): Promise<string[]>
  * admin client: RLS already scopes an authenticated user to their own
  * company, which is exactly the access this needs.
  */
-export async function getCompanyById(id: string): Promise<CompanyBranding | null> {
-  const supabase = createClient();
+const COMPANY_BRANDING_COLUMNS =
+  "id, slug, name, logo_url, primary_color, secondary_color, contact_email, contact_phone, contact_address, deletion_requested_at, deletion_reason";
+const COMPANY_BRANDING_CORE_COLUMNS =
+  "id, slug, name, logo_url, primary_color, secondary_color, contact_email, contact_phone, contact_address";
 
-  const { data, error } = await supabase
+async function readCompanyBranding(
+  supabase: ReturnType<typeof createClient>,
+  id: string,
+): Promise<CompanyBranding | null> {
+  const full = await supabase
     .from("companies")
-    .select(
-      "id, slug, name, logo_url, primary_color, secondary_color, contact_email, contact_phone, contact_address, deletion_requested_at, deletion_reason",
-    )
+    .select(COMPANY_BRANDING_COLUMNS)
     .eq("id", id)
     .maybeSingle<CompanyBrandingRow>();
 
-  if (error || !data) {
+  if (!full.error && full.data) {
+    return mapBranding(full.data);
+  }
+
+  if (!full.error) {
     return null;
   }
 
-  return mapBranding(data);
+  const core = await supabase
+    .from("companies")
+    .select(COMPANY_BRANDING_CORE_COLUMNS)
+    .eq("id", id)
+    .maybeSingle<CompanyBrandingRow>();
+
+  if (core.error || !core.data) {
+    return null;
+  }
+
+  return mapBranding(core.data);
+}
+
+export async function getCompanyById(id: string): Promise<CompanyBranding | null> {
+  return readCompanyBranding(createClient(), id);
 }
 
 /** Service-role lookup by id — used after unauthenticated Razorpay signup. */
 export async function getCompanyByIdAdmin(id: string): Promise<CompanyBranding | null> {
-  const supabase = createAdminClient();
-
-  const { data, error } = await supabase
-    .from("companies")
-    .select("id, slug, name, logo_url, primary_color, secondary_color, contact_email, contact_phone, contact_address")
-    .eq("id", id)
-    .maybeSingle<CompanyBrandingRow>();
-
-  if (error || !data) {
-    return null;
-  }
-
-  return mapBranding(data);
+  return readCompanyBranding(createAdminClient(), id);
 }
 
 /** Pre-auth / sign-in: whether the platform has suspended this company. */

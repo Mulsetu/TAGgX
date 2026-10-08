@@ -28,11 +28,11 @@ export function LeadForm({ source }: { source: LeadSource }) {
 
   if (state.success) {
     return (
-      <div className="rounded-xl border border-[#0F6E7A]/15 bg-[#f4faf8] p-6">
-        <h2 className="text-lg font-semibold text-[#07343C]">
+      <div className="rounded-xl border border-[#005068]/15 bg-[#F2F7F8] p-6">
+        <h2 className="text-lg font-semibold text-[#003848]">
           {isDemo ? "Demo request received" : "Inquiry received"}
         </h2>
-        <p className="mt-2 text-sm leading-6 text-[#07343C]/70">
+        <p className="mt-2 text-sm leading-6 text-[#003848]/70">
           The TagX team at Mulsetu will get back to you on the email you shared. If it is urgent,
           mention that in a follow-up to founder@mulsetu.com.
         </p>
@@ -91,7 +91,7 @@ export function LeadForm({ source }: { source: LeadSource }) {
           {state.error}
         </p>
       ) : null}
-      <Button type="submit" disabled={isPending} className="bg-[#0F6E7A] hover:bg-[#0c5c66]">
+      <Button type="submit" disabled={isPending} className="bg-[#005068] hover:bg-[#003E50]">
         {isPending ? "Sending…" : isDemo ? "Book the demo" : "Send inquiry"}
       </Button>
     </form>

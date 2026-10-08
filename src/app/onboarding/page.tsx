@@ -34,11 +34,11 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
   const selected = selectedPlanId ? await getPlanForSignup(selectedPlanId) : null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-white text-[#07343C]">
+    <div className="flex min-h-screen flex-col bg-white text-[#003848]">
       <MarketingHeader />
       <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-6 px-4 py-10">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B9E3A]">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3F7A22]">
             Step 2 of 2
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight">Create your company workspace</h1>

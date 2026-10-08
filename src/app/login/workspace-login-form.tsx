@@ -1,32 +1,20 @@
-"use client";
-
-import { useState, useTransition, type FormEvent } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { PendingSubmitButton } from "@/components/auth/pending-submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { resolveWorkspaceLogin } from "@/modules/companies/actions";
 
-export function WorkspaceLoginForm({ defaultSlug }: { defaultSlug: string }) {
-  const [slug, setSlug] = useState(defaultSlug);
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+const WORKSPACE_ERRORS: Record<string, string> = {
+  slug: "Enter your workspace URL, like acme.",
+  missing: "We couldn't find that workspace.",
+  rate: "Try again later.",
+};
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    startTransition(async () => {
-      const result = await resolveWorkspaceLogin(slug);
-      if ("redirectPath" in result) {
-        window.location.assign(result.redirectPath);
-        return;
-      }
-      setError(result.error);
-    });
-  }
+export function WorkspaceLoginForm({ defaultSlug, errorCode }: { defaultSlug: string; errorCode?: string }) {
+  const error = errorCode ? WORKSPACE_ERRORS[errorCode] : undefined;
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
+    <form action={resolveWorkspaceLogin} className="flex w-full flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="workspace-slug">Workspace URL</Label>
         <div className="flex items-center gap-0 overflow-hidden rounded-md border border-input bg-background shadow-sm focus-within:ring-1 focus-within:ring-ring">
@@ -34,8 +22,7 @@ export function WorkspaceLoginForm({ defaultSlug }: { defaultSlug: string }) {
           <Input
             id="workspace-slug"
             name="slug"
-            value={slug}
-            onChange={(event) => setSlug(event.target.value.toLowerCase())}
+            defaultValue={defaultSlug}
             autoComplete="organization"
             autoCapitalize="none"
             autoCorrect="off"
@@ -54,9 +41,7 @@ export function WorkspaceLoginForm({ defaultSlug }: { defaultSlug: string }) {
           {error}
         </p>
       ) : null}
-      <Button type="submit" className="w-full" size="touch" disabled={isPending}>
-        {isPending ? "Continuing..." : "Continue to sign in"}
-      </Button>
+      <PendingSubmitButton idle="Continue to sign in" pending="Opening workspace..." className="w-full" />
       <p className="text-center text-xs leading-5 text-muted-foreground">
         New here?{" "}
         <Link href="/signup" className="underline-offset-4 hover:underline">

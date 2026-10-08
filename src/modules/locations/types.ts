@@ -20,6 +20,11 @@ export function isLocationKind(value: string): value is LocationKind {
   return (LOCATION_KINDS as readonly string[]).includes(value);
 }
 
+/** The next level under this kind, or null when nothing can nest here. */
+export function childKindFor(kind: LocationKind): LocationKind | null {
+  return LOCATION_KINDS.find((candidate) => LOCATION_KIND_PARENT[candidate] === kind) ?? null;
+}
+
 export interface LocationSummary {
   id: string;
   name: string;

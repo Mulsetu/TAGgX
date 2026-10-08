@@ -49,7 +49,7 @@ export default async function AuditsPage({ searchParams }: AuditsPageProps) {
       </div>
 
       <Button asChild variant="outline" className="w-full sm:w-auto" size="touch">
-        <Link href="/floor/audits">Open floor audit on this phone</Link>
+        <Link href="/floor/audits">Open floor audit</Link>
       </Button>
 
       {items.length === 0 ? (
