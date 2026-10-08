@@ -2,6 +2,7 @@
 
 import "server-only";
 import ExcelJS from "exceljs";
+import type { z } from "zod";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -33,6 +34,7 @@ import {
   updateCompany,
   updateCompanyBranding,
   upsertCompanyWorkspaceSettings,
+  type WorkspaceSettingsPatch,
 } from "./mutations";
 import type {
   CompanyBranding,
@@ -225,87 +227,25 @@ export async function createCompanyAction(
     return { error: "Choose a valid plan." };
   }
 
+  if (!consumeRateLimit(`company-create:${clientIpFromHeaders(headers())}`, 20, 60_000)) {
+    return { error: "Too many requests. Wait a minute and try again." };
+  }
+
   const companyResult = await createCompany(parsed.data);
   if ("error" in companyResult) {
     return { error: companyResult.error };
   }
 
-  const provisioned = await provisionCompanyWorkspace(companyResult.id);
-  if ("error" in provisioned) {
-    return { error: provisioned.error };
+  const setup = await finishCompanySetup(companyResult.id, parsed.data, plan, planId);
+  if ("error" in setup) {
+    // Roll back the half-provisioned company (every tenant table cascades
+    // on company_id) so the slug is free again for a retry, instead of the
+    // next attempt failing with "slug already taken".
+    await deleteCompany(companyResult.id);
+    return { error: `${setup.error} The company was not created — you can try again.` };
   }
 
-  const subscriptionType = parsed.data.subscriptionType ?? "sales_assisted";
-  const skipPayment =
-    subscriptionType === "demo" || subscriptionType === "complimentary" || subscriptionType === "trial";
-  const defaultStatus =
-    parsed.data.subscriptionStatus ??
-    (skipPayment || parsed.data.paymentStatus === "paid" ? "active" : plan && plan.priceMonthly > 0 ? "pending_payment" : "active");
-
-  if (plan) {
-    const subResult = await upsertCompanySubscription(companyResult.id, plan.id, {
-      status: defaultStatus,
-      subscriptionType,
-      billingCycle: parsed.data.billingCycle ?? "monthly",
-      startsAt: parsed.data.startsAt || undefined,
-      endsAt: parsed.data.endsAt || null,
-    });
-    if ("error" in subResult) {
-      return { error: subResult.error };
-    }
-    const limits = await applyPlanLimitsToCompany(companyResult.id, plan);
-    if ("error" in limits) {
-      return { error: limits.error };
-    }
-
-    if (!skipPayment && parsed.data.paymentMethod && (parsed.data.paymentAmount ?? 0) > 0 && parsed.data.paymentStatus) {
-      const subscription = await getSubscriptionForCompany(companyResult.id);
-      const supabase = createClient();
-      const {
-        data: { user: actor },
-      } = await supabase.auth.getUser();
-      const payment = await insertBillingPayment({
-        companyId: companyResult.id,
-        subscriptionId: subscription?.id ?? null,
-        amount: parsed.data.paymentAmount ?? 0,
-        currency: plan.currency,
-        paymentMethod: parsed.data.paymentMethod,
-        paymentStatus: parsed.data.paymentStatus,
-        referenceNumber: parsed.data.paymentReference ?? null,
-        paymentDate: parsed.data.paymentDate || new Date().toISOString().slice(0, 10),
-        notes: parsed.data.paymentNotes ?? null,
-        createdBy: actor?.id ?? null,
-      });
-      if ("error" in payment) {
-        return { error: payment.error };
-      }
-    }
-  }
-
-  await writeAuditLog({
-    action: "company.created",
-    entityType: "company",
-    entityId: companyResult.id,
-    companyId: companyResult.id,
-    newValues: { slug: parsed.data.slug, planId, subscriptionType, status: defaultStatus },
-  });
-
-  const supabase = createClient();
-  const {
-    data: { user: currentSuperAdmin },
-  } = await supabase.auth.getUser();
-
-  const inviteResult = await createCompanyInvite(
-    companyResult.id,
-    provisioned.adminRoleId,
-    parsed.data.adminEmail,
-    currentSuperAdmin?.id ?? null,
-  );
-  if ("error" in inviteResult) {
-    return { error: inviteResult.error };
-  }
-
-  const inviteUrl = `${getRequestSiteUrl()}/invite/${inviteResult.token}`;
+  const inviteUrl = `${getRequestSiteUrl()}/invite/${setup.inviteToken}`;
 
   const emailResult = await sendUserInviteEmail({
     to: parsed.data.adminEmail,
@@ -316,17 +256,105 @@ export async function createCompanyAction(
   await writeAuditLog({
     action: "user.invited",
     entityType: "company_invite",
-    entityId: inviteResult.token ? undefined : null,
     companyId: companyResult.id,
     newValues: { email: parsed.data.adminEmail },
   });
 
   revalidatePath("/admin");
 
-  const isProd = process.env.NODE_ENV === "production";
-  const showLinkDirectly = !isProd || "error" in emailResult;
+  const realEmail = process.env.NODE_ENV === "production" || process.env.SEND_REAL_EMAILS_IN_DEV === "true";
+  const emailSent = realEmail && !("error" in emailResult);
 
-  return { error: null, inviteUrl: showLinkDirectly ? inviteUrl : undefined };
+  return {
+    error: null,
+    created: {
+      name: parsed.data.name,
+      slug: parsed.data.slug,
+      adminEmail: parsed.data.adminEmail,
+      emailSent,
+    },
+    inviteUrl: emailSent ? undefined : inviteUrl,
+  };
+}
+
+/**
+ * Everything after the companies row is inserted: roles/catalog seeds,
+ * plan + subscription + optional offline payment, and the admin invite.
+ * Any failure here makes createCompanyAction roll the company back.
+ */
+async function finishCompanySetup(
+  companyId: string,
+  data: z.infer<typeof createCompanySchema>,
+  plan: Awaited<ReturnType<typeof getPlanById>>,
+  planId: string | null,
+): Promise<{ error: string } | { inviteToken: string }> {
+  const provisioned = await provisionCompanyWorkspace(companyId);
+  if ("error" in provisioned) {
+    return { error: provisioned.error };
+  }
+
+  const subscriptionType = data.subscriptionType ?? "sales_assisted";
+  const skipPayment =
+    subscriptionType === "demo" || subscriptionType === "complimentary" || subscriptionType === "trial";
+  const defaultStatus =
+    data.subscriptionStatus ??
+    (skipPayment || data.paymentStatus === "paid" ? "active" : plan && plan.priceMonthly > 0 ? "pending_payment" : "active");
+
+  const supabase = createClient();
+  const {
+    data: { user: actor },
+  } = await supabase.auth.getUser();
+
+  if (plan) {
+    const subResult = await upsertCompanySubscription(companyId, plan.id, {
+      status: defaultStatus,
+      subscriptionType,
+      billingCycle: data.billingCycle ?? "monthly",
+      startsAt: data.startsAt || undefined,
+      endsAt: data.endsAt || null,
+    });
+    if ("error" in subResult) {
+      return { error: subResult.error };
+    }
+    const limits = await applyPlanLimitsToCompany(companyId, plan);
+    if ("error" in limits) {
+      return { error: limits.error };
+    }
+
+    if (!skipPayment && data.paymentMethod && (data.paymentAmount ?? 0) > 0 && data.paymentStatus) {
+      const subscription = await getSubscriptionForCompany(companyId);
+      const payment = await insertBillingPayment({
+        companyId,
+        subscriptionId: subscription?.id ?? null,
+        amount: data.paymentAmount ?? 0,
+        currency: plan.currency,
+        paymentMethod: data.paymentMethod,
+        paymentStatus: data.paymentStatus,
+        referenceNumber: data.paymentReference ?? null,
+        paymentDate: data.paymentDate || new Date().toISOString().slice(0, 10),
+        notes: data.paymentNotes ?? null,
+        createdBy: actor?.id ?? null,
+      });
+      if ("error" in payment) {
+        return { error: payment.error };
+      }
+    }
+  }
+
+  const inviteResult = await createCompanyInvite(companyId, provisioned.adminRoleId, data.adminEmail, actor?.id ?? null);
+  if ("error" in inviteResult) {
+    return { error: inviteResult.error };
+  }
+
+  await writeAuditLog({
+    action: "company.created",
+    entityType: "company",
+    entityId: companyId,
+    companyId,
+    newValues: { slug: data.slug, planId, subscriptionType, status: defaultStatus },
+  });
+
+  return { inviteToken: inviteResult.token };
 }
 
 /**
@@ -496,25 +524,23 @@ export async function updateWorkspaceSettingsAction(
     return { error: "Could not determine your company." };
   }
 
-  const stored = await getCompanyWorkspaceSettings(companyId);
-  const assetCodeFormat = stored.assetCodeFormat;
-  let enabledModules = parseEnabledModules(stored.enabledModules);
-  let assetFieldConfig = parseAssetFieldConfig(stored.assetFieldConfig);
-  let dashboardWidgets = parseDashboardWidgets(stored.dashboardWidgets);
-  let dashboardLayouts = parseDashboardLayouts(stored.dashboardLayouts);
-  let workflowConfig = parseWorkflowConfig(stored.workflowConfig);
-  let departmentCatalog = parseStringCatalog(stored.departmentCatalog);
-  let disposalMethods = parseStringCatalog(stored.disposalMethods);
+  if (!consumeRateLimit(`workspace-settings:${companyId}`, 30, 60_000)) {
+    return { error: "Too many saves. Wait a minute and try again." };
+  }
 
   const intent = String(formData.get("intent") ?? "");
+  let patch: WorkspaceSettingsPatch;
 
   if (intent === "workspace") {
-    workflowConfig = parseWorkflowConfig(null);
+    const workflowConfig = parseWorkflowConfig(null);
     for (const key of WORKFLOW_KEYS) {
       workflowConfig[key] = formData.get(`workflow_${key}`) === "on";
     }
-    departmentCatalog = parseCatalogText(String(formData.get("departments") ?? ""));
-    disposalMethods = parseCatalogText(String(formData.get("disposalMethods") ?? ""));
+    patch = {
+      workflowConfig,
+      departmentCatalog: parseCatalogText(String(formData.get("departments") ?? "")),
+      disposalMethods: parseCatalogText(String(formData.get("disposalMethods") ?? "")),
+    };
   } else if (intent === "modules") {
     const subscription = await getSubscriptionForCompany(companyId);
     const plan = subscription ? await getPlanById(subscription.planId) : null;
@@ -530,17 +556,14 @@ export async function updateWorkspaceSettingsAction(
         }
       }
     }
-    enabledModules = clampModulesToPlan(requested, planModules);
+    patch = { enabledModules: clampModulesToPlan(requested, planModules) };
   } else if (intent === "dashboard") {
     const resetDashboard = formData.get("resetDashboard") === "1";
-    dashboardWidgets = resetDashboard
-      ? parseDashboardWidgets(null)
-      : widgetsFromForm(formData, "widget_", parseDashboardWidgets(null));
-    if (resetDashboard) {
-      dashboardLayouts = parseDashboardLayouts(null);
-    }
+    patch = resetDashboard
+      ? { dashboardWidgets: parseDashboardWidgets(null), dashboardLayouts: parseDashboardLayouts(null) }
+      : { dashboardWidgets: widgetsFromForm(formData, "widget_", parseDashboardWidgets(null)) };
   } else if (intent === "fields") {
-    assetFieldConfig = parseAssetFieldConfig(null);
+    const assetFieldConfig = parseAssetFieldConfig(null);
     for (const key of ASSET_FIELD_KEYS) {
       assetFieldConfig[key] = {
         enabled: formData.get(`field_enabled_${key}`) === "on",
@@ -549,20 +572,12 @@ export async function updateWorkspaceSettingsAction(
         order: Number(formData.get(`field_order_${key}`) ?? assetFieldConfig[key].order) || assetFieldConfig[key].order,
       };
     }
+    patch = { assetFieldConfig };
   } else {
     return { error: "Unknown settings section." };
   }
 
-  const result = await upsertCompanyWorkspaceSettings(companyId, {
-    assetCodeFormat,
-    enabledModules,
-    assetFieldConfig,
-    dashboardWidgets,
-    dashboardLayouts,
-    workflowConfig,
-    departmentCatalog,
-    disposalMethods,
-  });
+  const result = await upsertCompanyWorkspaceSettings(companyId, patch);
   if (result.error) {
     return { error: result.error };
   }
@@ -571,7 +586,7 @@ export async function updateWorkspaceSettingsAction(
     action: "settings.updated",
     entityType: "company_settings",
     entityId: companyId,
-    newValues: { intent, assetCodeFormat, enabledModules },
+    newValues: { intent, ...patch },
   });
   revalidatePath("/dashboard/administration/settings");
   revalidatePath("/dashboard/administration/fields");

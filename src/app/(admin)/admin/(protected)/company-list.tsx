@@ -71,6 +71,8 @@ export function CompanyList({
                       <span className="flex items-center gap-2">
                         {company.name}
                         {company.suspendedAt ? <Badge variant="destructive">Suspended</Badge> : null}
+                        {company.inviteStatus === "pending" ? <Badge variant="secondary">Invite pending</Badge> : null}
+                        {company.inviteStatus === "expired" ? <Badge variant="outline">Invite expired</Badge> : null}
                         {company.deletionRequestedAt ? (
                           <Badge variant="destructive">Deletion requested</Badge>
                         ) : null}
