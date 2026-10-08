@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { TAGX_GREEN, TAGX_TEAL } from "@/lib/brand";
 
 export interface RgbColor {
   r: number;
@@ -102,4 +103,48 @@ export function brandingStyle(
   }
 
   return style as CSSProperties;
+}
+
+function colorOrDefault(hex: string | null | undefined, fallback: string): RgbColor {
+  return (hex ? parseHexColor(hex) : null) ?? parseHexColor(fallback) ?? { r: 0, g: 80, b: 104 };
+}
+
+/**
+ * Company dashboard theme. The sidebar and headings use the logo primary.
+ * Buttons, checks, and switches use the logo secondary. Missing colors
+ * fall back to the TagX teal and green.
+ */
+export function companyShellStyle(
+  primaryColor: string | null | undefined,
+  secondaryColor: string | null | undefined,
+): CSSProperties {
+  const primary = colorOrDefault(primaryColor, TAGX_TEAL);
+  const secondary = colorOrDefault(secondaryColor, TAGX_GREEN);
+  const primaryHsl = toHsl(primary);
+  const secondaryHsl = toHsl(secondary);
+  const primaryChannels = formatHslChannels(primaryHsl);
+  const secondaryChannels = formatHslChannels(secondaryHsl);
+  const sidebarForeground = contrastingForeground(primary);
+  const buttonForeground = contrastingForeground(secondary);
+  const accentLightness = primaryHsl.l > 70 ? Math.max(primaryHsl.l - 8, 55) : Math.min(primaryHsl.l + 8, 36);
+
+  return {
+    "--brand-primary": primaryChannels,
+    "--brand-secondary": secondaryChannels,
+    "--primary": secondaryChannels,
+    "--primary-foreground": buttonForeground,
+    "--ring": secondaryChannels,
+    "--sidebar-background": primaryChannels,
+    "--sidebar-foreground": sidebarForeground,
+    "--sidebar-primary": secondaryChannels,
+    "--sidebar-primary-foreground": buttonForeground,
+    "--sidebar-accent": formatHslChannels({ h: primaryHsl.h, s: Math.min(primaryHsl.s, 70), l: accentLightness }),
+    "--sidebar-accent-foreground": sidebarForeground,
+    "--sidebar-border": formatHslChannels({
+      h: primaryHsl.h,
+      s: Math.min(primaryHsl.s, 60),
+      l: Math.min(accentLightness, primaryHsl.l + 6),
+    }),
+    "--sidebar-ring": secondaryChannels,
+  } as CSSProperties;
 }

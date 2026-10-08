@@ -59,7 +59,7 @@ function StatusFormFields({ status, nextSortOrder }: { status?: StatusSummary; n
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="color">Color</Label>
-        <Input id="color" name="color" defaultValue={status?.color ?? ""} placeholder="#0F6E7A" maxLength={7} />
+        <Input id="color" name="color" defaultValue={status?.color ?? ""} placeholder="#005068" maxLength={7} />
       </div>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="isFinal" defaultChecked={status?.isFinal ?? false} />

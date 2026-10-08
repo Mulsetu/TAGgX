@@ -27,7 +27,7 @@ export function AssetStatusActions({
   }
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       {deleted ? (
         <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={() => run(() => restoreAssetAction(assetId))}>
           Restore asset

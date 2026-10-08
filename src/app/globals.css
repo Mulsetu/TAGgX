@@ -18,15 +18,15 @@ body {
 
 .marketing-hero {
   background:
-    radial-gradient(1100px 520px at 8% -12%, rgba(15, 110, 122, 0.16), transparent 58%),
-    radial-gradient(820px 480px at 92% 8%, rgba(107, 158, 58, 0.18), transparent 54%),
-    linear-gradient(180deg, #f7fbfa 0%, #ffffff 42%, #ffffff 100%);
+    radial-gradient(1100px 520px at 8% -12%, rgba(0, 80, 104, 0.16), transparent 58%),
+    radial-gradient(820px 480px at 92% 8%, rgba(104, 176, 48, 0.18), transparent 54%),
+    linear-gradient(180deg, #f4f8f8 0%, #ffffff 42%, #ffffff 100%);
 }
 
 .marketing-grid {
   background-image:
-    linear-gradient(rgba(15, 110, 122, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(15, 110, 122, 0.045) 1px, transparent 1px);
+    linear-gradient(rgba(0, 80, 104, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 80, 104, 0.045) 1px, transparent 1px);
   background-size: 28px 28px;
 }
 
@@ -74,6 +74,35 @@ body {
     --sidebar-ring: 217.2 91.2% 59.8%;
     --sidebar-background: 0 0% 98%;
   }
+  .company-shell {
+    --background: 210 40% 97%;
+    --foreground: 215 28% 17%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+    --brand-primary: 194 100% 20%;
+    --brand-secondary: 96 57% 44%;
+    --primary: 96 57% 44%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 192 24% 96%;
+    --secondary-foreground: 194 80% 14%;
+    --muted: 192 24% 96%;
+    --muted-foreground: 194 16% 36%;
+    --accent: 194 32% 94%;
+    --accent-foreground: 194 100% 18%;
+    --border: 194 18% 88%;
+    --input: 194 18% 88%;
+    --ring: 96 57% 44%;
+    --sidebar-background: 194 100% 20%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 194 72% 28%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 194 64% 26%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 194 55% 28%;
+    --sidebar-ring: 96 57% 44%;
+    background: #f4f7fb;
+  }
+
   .dark {
     --background: 0 0% 3.9%;
     --foreground: 0 0% 98%;
@@ -107,4 +136,34 @@ body {
     --sidebar-ring: 217.2 91.2% 59.8%;
     --sidebar-background: 240 5.9% 10%;
   }
+}
+
+.company-shell [data-sidebar="menu-button"] {
+  height: 2.5rem;
+  border-radius: 0.7rem;
+  color: rgb(255 255 255 / 0.9);
+}
+
+.company-shell [data-sidebar="menu-sub-button"] {
+  color: rgb(255 255 255 / 0.78);
+  border-radius: 0.55rem;
+}
+
+.company-page h1 {
+  letter-spacing: -0.025em;
+  color: hsl(var(--brand-primary));
+}
+
+.company-page .rounded-lg.border,
+.company-page .rounded-xl.border {
+  background: #fff;
+  border-color: rgb(226 232 240 / 0.95);
+  border-radius: 1rem;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+}
+
+.company-page table th,
+.company-page table td {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
 }

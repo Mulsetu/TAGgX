@@ -43,6 +43,7 @@ import {
   LOCATION_KIND_LABELS,
   LOCATION_KIND_PARENT,
   LOCATION_KINDS,
+  childKindFor,
   isLocationKind,
   type LocationFormState,
   type LocationKind,
@@ -118,48 +119,19 @@ function LocationFormFields({
         <input type="hidden" name="parentLocationId" value="" />
       )}
       {showAddress ? (
-        <>
-          <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="addressLine1">Address line 1</Label>
-              <Input
-                id="addressLine1"
-                name="addressLine1"
-                defaultValue={location?.addressLine1 ?? ""}
-                maxLength={200}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="addressLine2">Address line 2</Label>
-              <Input
-                id="addressLine2"
-                name="addressLine2"
-                defaultValue={location?.addressLine2 ?? ""}
-                maxLength={200}
-              />
+        <details className="rounded-lg border border-slate-200 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-slate-700">Address</summary>
+          <div className="mt-3 flex flex-col gap-3">
+            <Input name="addressLine1" defaultValue={location?.addressLine1 ?? ""} maxLength={200} placeholder="Address line 1" aria-label="Address line 1" />
+            <Input name="addressLine2" defaultValue={location?.addressLine2 ?? ""} maxLength={200} placeholder="Address line 2" aria-label="Address line 2" />
+            <div className="grid grid-cols-2 gap-3">
+              <Input name="city" defaultValue={location?.city ?? ""} maxLength={100} placeholder="City" aria-label="City" />
+              <Input name="state" defaultValue={location?.state ?? ""} maxLength={100} placeholder="State" aria-label="State" />
+              <Input name="postalCode" defaultValue={location?.postalCode ?? ""} maxLength={20} placeholder="Postal code" aria-label="Postal code" />
+              <Input name="country" defaultValue={location?.country ?? ""} maxLength={100} placeholder="Country" aria-label="Country" />
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="city">City</Label>
-              <Input id="city" name="city" defaultValue={location?.city ?? ""} maxLength={100} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="state">State</Label>
-              <Input id="state" name="state" defaultValue={location?.state ?? ""} maxLength={100} />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-4 @sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="postalCode">Postal code</Label>
-              <Input id="postalCode" name="postalCode" defaultValue={location?.postalCode ?? ""} maxLength={20} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="country">Country</Label>
-              <Input id="country" name="country" defaultValue={location?.country ?? ""} maxLength={100} />
-            </div>
-          </div>
-        </>
+        </details>
       ) : null}
     </>
   );
@@ -216,7 +188,7 @@ function CreateLocationDialog({ locations }: { locations: LocationSummary[] }) {
   );
 }
 
-function EditLocationDialog({
+function LocationDialog({
   location,
   locations,
   open,
@@ -229,17 +201,37 @@ function EditLocationDialog({
 }) {
   const router = useRouter();
   const [state, setState] = useState<LocationFormState>(initialState);
+  const [childState, setChildState] = useState<LocationFormState>(initialState);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   const [isSaving, startSave] = useTransition();
+  const [isAdding, startAdd] = useTransition();
   const [isDeleting, startDelete] = useTransition();
 
   if (!location) return null;
 
+  const current = locations.find((entry) => entry.id === location.id) ?? location;
+  const children = locations.filter((entry) => entry.parentLocationId === current.id);
+  const nextKind = childKindFor(current.kind);
+  const address = [current.addressLine1, current.city, current.state].filter(Boolean).join(", ");
+
   function handleSave(formData: FormData) {
     startSave(async () => {
-      const result = await updateLocationAction(location!.id, initialState, formData);
+      const result = await updateLocationAction(current.id, initialState, formData);
       setState(result);
       if (!result.error) {
+        router.refresh();
+      }
+    });
+  }
+
+  function handleAddChild(formData: FormData) {
+    startAdd(async () => {
+      const result = await createLocationAction(initialState, formData);
+      setChildState(result);
+      if (!result.error) {
+        setAdding(false);
+        setChildState(initialState);
         router.refresh();
       }
     });
@@ -248,7 +240,7 @@ function EditLocationDialog({
   function handleDelete() {
     setDeleteError(null);
     startDelete(async () => {
-      const result = await deleteLocationAction(location!.id);
+      const result = await deleteLocationAction(current.id);
       if (result.error) {
         setDeleteError(result.error);
         return;
@@ -259,18 +251,81 @@ function EditLocationDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
+          setAdding(false);
+          setState(initialState);
+          setChildState(initialState);
+        }
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent className="bg-white text-slate-900">
         <DialogHeader>
-          <DialogTitle>{location.path}</DialogTitle>
+          <DialogTitle>{current.name}</DialogTitle>
+          <p className="text-sm text-slate-500">
+            {LOCATION_KIND_LABELS[current.kind]}
+            {current.parentLocationName ? ` · inside ${current.parentLocationName}` : ""}
+          </p>
         </DialogHeader>
-        <form action={handleSave} className="flex flex-col gap-4">
-          <LocationFormFields key={location.id} location={location} locations={locations} />
-          {state.error ? (
-            <p role="alert" className="text-sm text-destructive">
-              {state.error}
-            </p>
+
+        <div className="rounded-xl border border-slate-200 p-3">
+          <p className="text-sm font-medium text-slate-800">
+            {children.length === 0 ? "No child locations" : `${children.length} child location${children.length === 1 ? "" : "s"}`}
+          </p>
+          {children.length > 0 ? (
+            <ul className="mt-2 flex flex-col gap-1 text-sm text-slate-600">
+              {children.map((child) => (
+                <li key={child.id}>
+                  {child.name}
+                  <span className="text-slate-400"> · {LOCATION_KIND_LABELS[child.kind]}</span>
+                </li>
+              ))}
+            </ul>
           ) : null}
+          {nextKind ? (
+            adding ? (
+              <form action={handleAddChild} className="mt-3 flex flex-col gap-2">
+                <input type="hidden" name="kind" value={nextKind} />
+                <input type="hidden" name="parentLocationId" value={current.id} />
+                <Input name="name" required maxLength={200} placeholder={`${LOCATION_KIND_LABELS[nextKind]} name`} autoFocus />
+                {childState.error ? <p className="text-sm text-destructive">{childState.error}</p> : null}
+                <div className="flex gap-2">
+                  <Button type="submit" size="sm" disabled={isAdding}>
+                    {isAdding ? "Adding..." : `Add ${LOCATION_KIND_LABELS[nextKind].toLowerCase()}`}
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setAdding(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <Button type="button" size="sm" className="mt-3" onClick={() => setAdding(true)}>
+                Add {LOCATION_KIND_LABELS[nextKind].toLowerCase()}
+              </Button>
+            )
+          ) : (
+            <p className="mt-1 text-xs text-slate-500">This is the last level. Nothing nests under a room.</p>
+          )}
+        </div>
+
+        <form action={handleSave} className="flex flex-col gap-3">
+          <input type="hidden" name="kind" value={current.kind} />
+          <input type="hidden" name="parentLocationId" value={current.parentLocationId ?? ""} />
+          <input type="hidden" name="addressLine1" value={current.addressLine1 ?? ""} />
+          <input type="hidden" name="addressLine2" value={current.addressLine2 ?? ""} />
+          <input type="hidden" name="city" value={current.city ?? ""} />
+          <input type="hidden" name="state" value={current.state ?? ""} />
+          <input type="hidden" name="postalCode" value={current.postalCode ?? ""} />
+          <input type="hidden" name="country" value={current.country ?? ""} />
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="location-name">Name</Label>
+            <Input id="location-name" name="name" required maxLength={200} defaultValue={current.name} />
+          </div>
+          {address ? <p className="text-xs text-slate-500">{address}</p> : null}
+          {state.error ? <p className="text-sm text-destructive">{state.error}</p> : null}
           <DialogFooter className="items-center sm:justify-between">
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -278,19 +333,16 @@ function EditLocationDialog({
                   Delete
                 </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent>
+              <AlertDialogContent className="bg-white text-slate-900">
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete {location.name}?</AlertDialogTitle>
+                  <AlertDialogTitle>Delete {current.name}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Nested locations must be removed first. Assets here become unassigned. Past
-                    movement history keeps this name.
+                    {children.length > 0
+                      ? "Remove its child locations first."
+                      : "Assets here become unassigned. Past movement history keeps this name."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
-                {deleteError ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {deleteError}
-                  </p>
-                ) : null}
+                {deleteError ? <p className="text-sm text-destructive">{deleteError}</p> : null}
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
                   <AlertDialogAction
@@ -298,7 +350,7 @@ function EditLocationDialog({
                       event.preventDefault();
                       handleDelete();
                     }}
-                    disabled={isDeleting}
+                    disabled={isDeleting || children.length > 0}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >
                     {isDeleting ? "Deleting..." : "Delete"}
@@ -307,7 +359,7 @@ function EditLocationDialog({
               </AlertDialogContent>
             </AlertDialog>
             <Button type="submit" disabled={isSaving}>
-              {isSaving ? "Saving..." : "Save changes"}
+              {isSaving ? "Saving..." : "Save name"}
             </Button>
           </DialogFooter>
         </form>
@@ -331,7 +383,7 @@ export function LocationList({ locations }: { locations: LocationSummary[] }) {
             <TableRow>
               <TableHead>Location</TableHead>
               <TableHead>Level</TableHead>
-              <TableHead>City</TableHead>
+              <TableHead>Children</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -359,7 +411,9 @@ export function LocationList({ locations }: { locations: LocationSummary[] }) {
                   <TableCell>
                     <Badge variant="outline">{LOCATION_KIND_LABELS[location.kind]}</Badge>
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{location.city ?? "—"}</TableCell>
+                  <TableCell className="text-slate-500">
+                    {location.childCount === 0 ? "None" : location.childCount}
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -367,7 +421,7 @@ export function LocationList({ locations }: { locations: LocationSummary[] }) {
         </Table>
       </div>
 
-      <EditLocationDialog location={selected} locations={locations} open={open} onOpenChange={setOpen} />
+      <LocationDialog location={selected} locations={locations} open={open} onOpenChange={setOpen} />
     </div>
   );
 }

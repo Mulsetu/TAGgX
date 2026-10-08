@@ -57,7 +57,7 @@ export async function createPublicTicket(params: {
   title: string;
   description: string;
   reporterName: string;
-  reporterEmail: string;
+  reporterEmail: string | null;
 }): Promise<MaintenanceMutationResult> {
   const supabase = createAdminClient();
 

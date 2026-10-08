@@ -1,5 +1,5 @@
 import "server-only";
-import { TAGX_LOGO_SRC } from "@/lib/brand";
+import { TAGX_LOGO_SRC, TAGX_TEAL } from "@/lib/brand";
 import { getSiteUrl } from "@/lib/site";
 
 // The only file in this codebase that talks to Brevo. Every outward-facing
@@ -98,7 +98,7 @@ function renderLayout(
   },
 ): string {
   const companyName = brand?.companyName || "TagX";
-  const accent = brand?.primaryColor || "#171717";
+  const accent = brand?.primaryColor || TAGX_TEAL;
   const logoSrc = brand?.logoUrl || `${getSiteUrl()}${TAGX_LOGO_SRC}`;
   const logo = `<img src="${escapeHtml(logoSrc)}" alt="${escapeHtml(companyName)}" style="max-height:48px;max-width:220px;margin-bottom:16px;" />`;
   const contact = brand?.contactLine
@@ -149,7 +149,7 @@ export async function sendUserInviteEmail(params: UserInviteEmailParams): Promis
     `<p>${greeting}</p>
      <p>You've been invited${inviter} to join <strong>${companyName}</strong> on TagX.</p>
      <p>
-       <a href="${params.inviteUrl}" style="display:inline-block;padding:10px 16px;background:#171717;color:#fafafa;border-radius:6px;text-decoration:none;">
+       <a href="${params.inviteUrl}" style="display:inline-block;padding:10px 16px;background:${TAGX_TEAL};color:#ffffff;border-radius:6px;text-decoration:none;">
          Accept invitation
        </a>
      </p>

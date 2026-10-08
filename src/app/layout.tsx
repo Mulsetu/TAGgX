@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
-import { TAGX_ICON_SRC, TAGX_LOGO_SRC } from "@/lib/brand";
+import { TAGX_ICON_SRC, TAGX_LOGO_SRC, TAGX_TEAL } from "@/lib/brand";
 import {
   getSiteUrl,
   MULSETU_URL,
@@ -83,7 +83,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0F6E7A",
+  themeColor: TAGX_TEAL,
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",

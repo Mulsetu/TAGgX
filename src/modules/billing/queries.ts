@@ -212,8 +212,11 @@ interface AssetCountRow {
 }
 
 export async function getCompanyAssetCounts(): Promise<Map<string, number>> {
-  const supabase = createClient();
-  const { data, error } = await supabase.rpc("get_company_asset_counts");
+  const admin = createAdminClient();
+  const adminResult = await admin.rpc("get_company_asset_counts");
+  const { data, error } = adminResult.error
+    ? await createClient().rpc("get_company_asset_counts")
+    : adminResult;
 
   const counts = new Map<string, number>();
   if (error || !data) {
@@ -274,7 +277,7 @@ function planFromEmbed(plans: SubscriptionJoinRow["billing_plans"]): {
 }
 
 export async function listCompanyBillingSnapshots(): Promise<CompanyBillingSnapshot[]> {
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const [subsRes, counts, ordersRes] = await Promise.all([
     supabase

@@ -2,7 +2,9 @@
 
 import "server-only";
 import ExcelJS from "exceljs";
+import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
+import { assertCanCreateAsset } from "@/modules/billing/actions";
 import { TENANT_HEADERS } from "@/lib/tenant";
 import { requirePermission } from "@/lib/permissions/has-permission";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
@@ -15,7 +17,6 @@ import {
   DASHBOARD_WIDGET_LABELS,
   DASHBOARD_WIDGET_MODULES,
   DASHBOARD_WIDGET_PERMISSIONS,
-  resolveDashboardWidgets,
   widgetEnabledByModules,
   type DashboardWidgetKey,
 } from "@/lib/permissions/workspace-config";
@@ -61,8 +62,7 @@ async function tableToXlsxBase64(table: ReportTable): Promise<string> {
 
 export async function getDashboardHome(): Promise<DashboardHomeWidget[]> {
   const runtime = await getWorkspaceRuntime();
-  const roleId = headers().get(TENANT_HEADERS.roleId);
-  const configured = resolveDashboardWidgets(runtime.widgets, runtime.layouts, roleId);
+  const configured = runtime.widgets;
 
   const allowed: DashboardWidgetKey[] = [];
   for (const key of DASHBOARD_WIDGET_KEYS) {
@@ -342,5 +342,114 @@ export async function commitImportAction(_prev: ImportFormState, formData: FormD
     errorReport: errorCsv,
   });
   await writeAuditLog({ action: "assets.imported", entityType: "import_job", newValues: { successCount, errorCount } });
+  return { error: null, result: { successCount, errorCount, errorCsv: errorCsv ?? undefined } };
+}
+
+/** Add-asset CSV import. Codes always come from the category prefix, and rows stop at the plan limit. */
+export async function importBasicAssetsAction(_prev: ImportFormState, formData: FormData): Promise<ImportFormState> {
+  if (!(await requireWritableTenant())) {
+    return { error: TENANT_READ_ONLY_MESSAGE };
+  }
+  if (!(await requireModule("assets")) || !(await requirePermission("assets", "create"))) {
+    return { error: "You don't have permission to import assets." };
+  }
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  const user = await getRequestAuthUser();
+  if (!companyId || !user) {
+    return { error: "Could not determine your company." };
+  }
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choose a CSV file." };
+  }
+  if (file.size > 1_000_000) {
+    return { error: "That CSV is too large." };
+  }
+
+  const parsed = parseCsv(await file.text());
+  const header = parsed[0]?.map((column) => column.trim().toLowerCase());
+  if (!header || ["name", "category", "location", "status"].some((column) => !header.includes(column))) {
+    return { error: "The CSV needs columns for name, category, location, and status. Download the sample and use that." };
+  }
+  const dataRows = parsed.slice(1);
+  if (dataRows.length === 0) {
+    return { error: "The CSV has no asset rows." };
+  }
+  if (dataRows.length > 500) {
+    return { error: "Import up to 500 assets at a time." };
+  }
+
+  const catalogs = await lookupCatalogs();
+  const errors: string[][] = [["line", "name", "error"]];
+  let successCount = 0;
+  let limitMessage: string | null = null;
+
+  for (let i = 0; i < dataRows.length; i += 1) {
+    const record = rowToRecord(header, dataRows[i] ?? []);
+    const line = String(i + 2);
+    if (limitMessage) {
+      errors.push([line, record.name ?? "", limitMessage]);
+      continue;
+    }
+    const rowError = validateImportRow(record, catalogs);
+    if (rowError) {
+      errors.push([line, record.name ?? "", rowError]);
+      continue;
+    }
+    if (record.condition && !/^[a-z][a-z0-9_]{0,63}$/.test(record.condition)) {
+      errors.push([line, record.name ?? "", "Condition must be a key such as good."]);
+      continue;
+    }
+    const quota = await assertCanCreateAsset();
+    if ("error" in quota) {
+      limitMessage = quota.error;
+      errors.push([line, record.name ?? "", limitMessage]);
+      continue;
+    }
+    const categoryId = catalogs.categories.get(record.category?.toLowerCase() ?? "");
+    const locationId = catalogs.locations.get(record.location?.toLowerCase() ?? "");
+    const status = catalogs.statuses.get(record.status?.toLowerCase() ?? "");
+    if (!categoryId || !locationId || !status) {
+      errors.push([line, record.name ?? "", "Lookup failed"]);
+      continue;
+    }
+    const prefix = await getCategoryPrefixForAsset(categoryId);
+    const assetCode = await generateAssetCode(companyId, prefix ?? undefined);
+    const result = await createAsset({
+      companyId,
+      createdBy: user.id,
+      assetCode,
+      input: {
+        name: record.name ?? "",
+        categoryId,
+        locationId,
+        statusId: status.id,
+        condition: record.condition || undefined,
+        serialNumber: record.serial_number || undefined,
+        brand: record.brand || undefined,
+        model: record.model || undefined,
+        ownershipType: "owned",
+      },
+      customFields: {},
+    });
+    if ("error" in result) {
+      errors.push([line, record.name ?? "", result.error]);
+      continue;
+    }
+    successCount += 1;
+  }
+
+  const errorCount = errors.length - 1;
+  const errorCsv = errorCount > 0 ? errors.map((row) => row.map(csvEscape).join(",")).join("\n") : null;
+  await insertImportJob({
+    companyId,
+    createdBy: user.id,
+    totalRows: dataRows.length,
+    successCount,
+    errorCount,
+    errorReport: errorCsv,
+  });
+  await writeAuditLog({ action: "assets.imported", entityType: "import_job", newValues: { successCount, errorCount } });
+  revalidatePath("/assets");
   return { error: null, result: { successCount, errorCount, errorCsv: errorCsv ?? undefined } };
 }

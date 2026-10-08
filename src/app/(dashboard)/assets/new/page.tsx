@@ -4,6 +4,7 @@ import { assertModule } from "@/lib/permissions/features";
 import { assertPermission } from "@/lib/permissions/has-permission";
 import { getCurrentCompanyQuota } from "@/modules/billing/actions";
 import { getAssetFormOptionsForForm } from "@/modules/assets/actions";
+import { AssetCsvImport } from "../asset-csv-import";
 import { AssetForm } from "../asset-form";
 
 export default async function NewAssetPage() {
@@ -38,6 +39,7 @@ export default async function NewAssetPage() {
           {quota.remaining === 1 ? "" : "s"} remaining on your plan.
         </p>
       ) : null}
+      <AssetCsvImport />
       <AssetForm mode="create" options={options} />
     </div>
   );

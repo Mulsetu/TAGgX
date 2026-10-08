@@ -32,7 +32,11 @@ export function getSiteUrl(): string {
   const raw = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (raw) {
     try {
-      return new URL(raw).origin;
+      const origin = new URL(raw).origin;
+      const local = origin.includes("localhost") || origin.includes("127.0.0.1");
+      if (!(process.env.NODE_ENV === "production" && local)) {
+        return origin;
+      }
     } catch {
       // fall through
     }

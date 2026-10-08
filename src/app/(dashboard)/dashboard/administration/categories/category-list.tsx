@@ -78,7 +78,8 @@ function CategoryFormFields({
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="codePrefix">Asset code prefix</Label>
-        <Input id="codePrefix" name="codePrefix" defaultValue={category?.codePrefix ?? ""} maxLength={12} placeholder="LAP" />
+        <Input id="codePrefix" name="codePrefix" defaultValue={category?.codePrefix ?? ""} required maxLength={12} placeholder="LAP" />
+        <p className="text-xs text-slate-500">New assets in this category are numbered from this, such as LAP-00001.</p>
       </div>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" name="isActive" defaultChecked={category?.isActive ?? true} />

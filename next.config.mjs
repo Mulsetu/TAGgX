@@ -27,9 +27,21 @@ const supabaseOrigin = (() => {
 // beacon, and an incomplete allowlist here fails silently as a broken
 // payment flow, not a console error anyone notices until a customer
 // reports a stuck checkout.
+// Webpack's dev server evaluates the app bundle (`eval-source-map`).
+// Without this, the browser blocks that script, React never hydrates, and
+// every sidebar click is a full document load.
+const scriptSrc = [
+  "'self'",
+  "'unsafe-inline'",
+  process.env.NODE_ENV === "production" ? "" : "'unsafe-eval'",
+  "https://*.razorpay.com",
+]
+  .filter(Boolean)
+  .join(" ");
+
 const CSP_DIRECTIVES = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' https://*.razorpay.com`,
+  `script-src ${scriptSrc}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: https://*.r2.dev https://*.r2.cloudflarestorage.com https://*.razorpay.com${r2PublicHostname ? ` https://${r2PublicHostname}` : ""}`,
   "font-src 'self' data:",

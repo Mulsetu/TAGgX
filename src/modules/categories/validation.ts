@@ -8,16 +8,13 @@ export const categoryFormSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   description: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
   parentCategoryId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
-  codePrefix: z.preprocess(
-    emptyToUndefined,
-    z
-      .string()
-      .trim()
-      .toUpperCase()
-      .max(12)
-      .regex(/^[A-Z][A-Z0-9]*$/, "Prefix must start with a letter")
-      .optional(),
-  ),
+  codePrefix: z
+    .string()
+    .trim()
+    .min(1, "Prefix is required")
+    .toUpperCase()
+    .max(12)
+    .regex(/^[A-Z][A-Z0-9]*$/, "Prefix must start with a letter"),
   isActive: z.boolean().optional().default(true),
   defaultStatusId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
   defaultConditionKey: z.preprocess(emptyToUndefined, z.string().trim().max(64).optional()),

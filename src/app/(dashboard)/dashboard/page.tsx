@@ -1,20 +1,10 @@
-import { SimpleBarChart } from "@/components/charts/simple-bar-chart";
+import { CompanyHome } from "@/components/dashboard/company-home";
 import { requireModule } from "@/lib/permissions/features";
 import { requirePermission } from "@/lib/permissions/has-permission";
+import { getInventoryTrendForDashboard, getRecentAssetsForDashboard } from "@/modules/assets/actions";
 import { getDashboardHome } from "@/modules/reports/actions";
 import { getVendorScope } from "@/modules/users/actions";
-import Link from "next/link";
 import { redirect } from "next/navigation";
-
-function widgetSpan(size: "sm" | "md" | "lg"): string {
-  if (size === "lg") {
-    return "col-span-2 @lg:col-span-4";
-  }
-  if (size === "md") {
-    return "col-span-2";
-  }
-  return "col-span-1";
-}
 
 export default async function DashboardPage() {
   const vendorId = await getVendorScope();
@@ -27,43 +17,18 @@ export default async function DashboardPage() {
     }
   }
 
-  const widgets = await getDashboardHome();
+  const [widgets, recentAssets, trendPercent, canCreate] = await Promise.all([
+    getDashboardHome(),
+    getRecentAssetsForDashboard(),
+    getInventoryTrendForDashboard(),
+    (async () => (await requireModule("assets")) && (await requirePermission("assets", "create")))(),
+  ]);
+
+  if (widgets.length === 0 && recentAssets.length === 0) {
+    return <p className="text-sm text-slate-500">No dashboard widgets are available for your role.</p>;
+  }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Company overview for the widgets you can access.</p>
-      </div>
-      {widgets.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No dashboard widgets are available for your role.</p>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 @lg:grid-cols-4">
-          {widgets.map((widget) =>
-            widget.kind === "chart" ? (
-              <div key={widget.id} className={`rounded-lg border p-4 ${widgetSpan(widget.size)}`}>
-                <p className="mb-2 text-sm font-medium">{widget.label}</p>
-                {widget.chart.length === 0 ? (
-                  <p className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
-                    No data yet
-                  </p>
-                ) : (
-                  <SimpleBarChart data={widget.chart} />
-                )}
-              </div>
-            ) : (
-              <Link
-                key={widget.id}
-                href={widget.href}
-                className={`rounded-lg border p-4 hover:bg-muted/40 ${widgetSpan(widget.size)}`}
-              >
-                <p className="text-xs text-muted-foreground">{widget.label}</p>
-                <p className="text-2xl font-semibold tracking-tight">{widget.value}</p>
-              </Link>
-            ),
-          )}
-        </div>
-      )}
-    </div>
+    <CompanyHome widgets={widgets} recentAssets={recentAssets} trendPercent={trendPercent} canCreate={canCreate} />
   );
 }

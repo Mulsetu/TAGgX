@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 
 const TABS: (SectionTab & { module: "users" | "roles" })[] = [
   { title: "Users", href: "/dashboard/administration/users", module: "users" },
-  { title: "Roles", href: "/dashboard/administration/roles", module: "roles" },
+  { title: "Roles & permissions", href: "/dashboard/administration/roles", module: "roles" },
 ];
 
 export default async function UsersAndRolesLayout({ children }: { children: React.ReactNode }) {
@@ -20,7 +20,11 @@ export default async function UsersAndRolesLayout({ children }: { children: Reac
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Users & roles</h1>
+        <p className="text-sm text-slate-500">Invite people and choose what each role can open.</p>
+      </div>
       <SectionTabs tabs={tabs} />
       {children}
     </div>

@@ -5,6 +5,7 @@ import {
   getNotificationLogsForAdmin,
   getNotificationRulesForAdmin,
 } from "@/modules/email/actions";
+import { SettingsFrame } from "../settings/settings-frame";
 import { NotificationsAdmin } from "./notifications-admin";
 
 export default async function NotificationsPage() {
@@ -17,15 +18,11 @@ export default async function NotificationsPage() {
   ]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Notifications</h1>
-        <p className="text-sm text-muted-foreground">
-          Edit reminder templates, turn rules on or off, and send a test email. Scheduled sends run via cron
-          and are de-duplicated in the notification log.
-        </p>
-      </div>
+    <SettingsFrame>
+      <p className="text-sm text-slate-500">
+        Edit reminder templates, turn rules on or off, and send a test email. Scheduled sends run via cron and are recorded in the log.
+      </p>
       <NotificationsAdmin templates={templates} rules={rules} logs={logs} />
-    </div>
+    </SettingsFrame>
   );
 }

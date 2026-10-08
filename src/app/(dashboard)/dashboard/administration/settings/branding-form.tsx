@@ -101,7 +101,7 @@ export function BrandingForm({ company }: { company: CompanyBranding }) {
         <Label htmlFor="workspace-url">Workspace login</Label>
         <Input id="workspace-url" value={`/${company.slug}/login`} readOnly disabled />
         <p className="text-xs text-muted-foreground">
-          Unique to this company. Logo and colors below appear on that page.
+          Unique to this company. The logo and these colors theme the sign-in page and the company dashboard. The sidebar uses the primary color. Every button uses the secondary color. Leave a color empty to keep the TagX default.
         </p>
       </div>
 
