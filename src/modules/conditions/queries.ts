@@ -46,3 +46,15 @@ export async function listActiveConditionOptions(): Promise<ConditionOption[]> {
   const conditions = await listConditions();
   return conditions.filter((row) => row.isActive).map((row) => ({ key: row.key, name: row.name }));
 }
+
+/** Assets per condition key (assets.condition stores the key, not an id). */
+export async function countAssetsPerCondition(keys: string[]): Promise<Record<string, number>> {
+  const supabase = createClient();
+  const counts = await Promise.all(
+    keys.map(async (key) => {
+      const { count } = await supabase.from("assets").select("id", { count: "exact", head: true }).eq("condition", key);
+      return [key, count ?? 0] as const;
+    }),
+  );
+  return Object.fromEntries(counts);
+}

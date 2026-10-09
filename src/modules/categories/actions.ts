@@ -6,8 +6,11 @@ import { revalidatePath } from "next/cache";
 import { TENANT_HEADERS } from "@/lib/tenant";
 import { requireModule } from "@/lib/permissions/features";
 import { requirePermission } from "@/lib/permissions/has-permission";
+import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { writeAuditLog } from "@/lib/audit-log";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import {
+  countAssetsPerCategory,
   countCategoryFields,
   getCategoryCodePrefix,
   listAllCategoryFields,
@@ -20,6 +23,7 @@ import {
   createCategoryField,
   deleteCategory,
   deleteCategoryField,
+  reassignCategoryAssets,
   replaceRequiredDocuments,
   updateCategory,
   updateCategoryField,
@@ -29,6 +33,7 @@ import {
   categoryFieldIdSchema,
   categoryFormSchema,
   MAX_FIELDS_PER_CATEGORY,
+  replacementSchema,
 } from "./validation";
 import type {
   CategoryField,
@@ -176,15 +181,52 @@ export async function updateCategoryAction(
   return { error: null };
 }
 
-export async function deleteCategoryAction(id: string): Promise<{ error: string | null }> {
+/** Live assets per category — drives the counts and safe delete. */
+export async function getCategoryUsageForAdmin(): Promise<Record<string, number>> {
+  if (!(await requirePermission("categories", "view"))) {
+    return {};
+  }
+  const categories = await listCategories();
+  return countAssetsPerCategory(categories.map((category) => category.id));
+}
+
+/**
+ * Deletes a category. assets.category_id is ON DELETE SET NULL, so without a
+ * replacement its assets would silently become uncategorized — pass
+ * `replacementId` to move them, or leave it out to deliberately uncategorize.
+ */
+export async function deleteCategoryAction(id: string, replacementId?: string): Promise<{ error: string | null }> {
   if (!(await requireWritableTenant())) {
     return { error: TENANT_READ_ONLY_MESSAGE };
   }
   if (!(await requirePermission("categories", "delete"))) {
     return { error: "You don't have permission to delete categories." };
   }
+  if (!consumeRateLimit(`setup-delete:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
+    return { error: "Too many requests. Wait a minute and try again." };
+  }
+  const replacement = replacementSchema.safeParse(replacementId);
+  if (!replacement.success || replacement.data === id) {
+    return { error: "Choose a different category to move the assets to." };
+  }
+  if (replacement.data) {
+    if (!(await requirePermission("assets", "edit"))) {
+      return { error: "You need asset edit access to move assets to another category." };
+    }
+    const categories = await listCategories();
+    if (!categories.some((category) => category.id === replacement.data)) {
+      return { error: "That category no longer exists." };
+    }
+    const moved = await reassignCategoryAssets(id, replacement.data);
+    if (moved.error) {
+      return moved;
+    }
+  }
 
   const result = await deleteCategory(id);
+  if (!result.error) {
+    await writeAuditLog({ action: "category.deleted", entityType: "asset_category", entityId: id, newValues: { movedTo: replacement.data ?? null } });
+  }
   revalidatePath(ADMIN_PATH);
   revalidatePath(FIELDS_PATH);
   return result;

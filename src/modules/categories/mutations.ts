@@ -213,3 +213,10 @@ export async function replaceRequiredDocuments(
   );
   return { error: error ? "Could not save required documents." : null };
 }
+
+/** Moves a category's assets to another category before it's deleted. */
+export async function reassignCategoryAssets(fromId: string, toId: string): Promise<{ error: string | null }> {
+  const supabase = createClient();
+  const { error } = await supabase.from("assets").update({ category_id: toId }).eq("category_id", fromId);
+  return { error: error ? "Could not move the assets to the new category." : null };
+}

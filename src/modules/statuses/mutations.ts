@@ -112,3 +112,19 @@ export async function seedDefaultAssetStatuses(companyId: string): Promise<SeedS
 
   return { error: null };
 }
+
+/** Moves every asset on one status to another (RLS: needs asset write access). */
+export async function reassignStatusAssets(fromId: string, toId: string): Promise<{ error: string | null }> {
+  const supabase = createClient();
+  const { error } = await supabase.from("assets").update({ status_id: toId }).eq("status_id", fromId);
+  return { error: error ? "Could not move the assets to the new status." : null };
+}
+
+/** Writes sort_order 1..n in the given order. */
+export async function reorderStatuses(ids: string[]): Promise<{ error: string | null }> {
+  const supabase = createClient();
+  const results = await Promise.all(
+    ids.map((id, index) => supabase.from("asset_statuses").update({ sort_order: index + 1 }).eq("id", id)),
+  );
+  return { error: results.some((result) => result.error) ? "Could not save the new order." : null };
+}

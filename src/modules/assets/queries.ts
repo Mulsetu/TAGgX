@@ -126,7 +126,7 @@ interface AssetListRow {
   updated_at: string;
   category: { name: string } | null;
   location: { name: string } | null;
-  status: { name: string } | null;
+  status: { name: string; color: string | null } | null;
   vendor_row: { name: string } | null;
 }
 
@@ -172,7 +172,7 @@ export async function listAssets(
   let query = supabase
     .from("assets")
     .select(
-      "id, name, asset_code, status_id, image_url, location_id, serial_number, condition, vendor, vendor_id, allotted_to, updated_at, category:asset_categories(name), location:locations(name), status:asset_statuses(name), vendor_row:vendors(name)",
+      "id, name, asset_code, status_id, image_url, location_id, serial_number, condition, vendor, vendor_id, allotted_to, updated_at, category:asset_categories(name), location:locations(name), status:asset_statuses(name, color), vendor_row:vendors(name)",
       { count: "exact" },
     )
     .is("deleted_at", null)
@@ -284,6 +284,7 @@ export async function listAssets(
     locationName: (row.location_id ? pathById.get(row.location_id) : null) ?? row.location?.name ?? null,
     statusId: row.status_id,
     statusName: row.status?.name ?? "—",
+    statusColor: row.status?.color ?? null,
     imageUrl: row.image_url,
     serialNumber: row.serial_number,
     vendorName: row.vendor_row?.name ?? row.vendor,
@@ -305,7 +306,7 @@ interface RecentAssetRow {
   updated_at: string;
   category: { name: string } | null;
   location: { name: string } | null;
-  status: { name: string } | null;
+  status: { name: string; color: string | null } | null;
 }
 
 /** Newest updates for the company dashboard table. */
@@ -314,7 +315,7 @@ export async function listRecentAssets(limit = 8): Promise<RecentAsset[]> {
   const { data, error } = await supabase
     .from("assets")
     .select(
-      "id, name, asset_code, image_url, location_id, allotted_to, updated_at, category:asset_categories(name), location:locations(name), status:asset_statuses(name)",
+      "id, name, asset_code, image_url, location_id, allotted_to, updated_at, category:asset_categories(name), location:locations(name), status:asset_statuses(name, color)",
     )
     .is("deleted_at", null)
     .is("archived_at", null)
@@ -349,6 +350,7 @@ export async function listRecentAssets(limit = 8): Promise<RecentAsset[]> {
     categoryName: row.category?.name ?? null,
     locationName: (row.location_id ? pathById.get(row.location_id) : null) ?? row.location?.name ?? null,
     statusName: row.status?.name ?? "—",
+    statusColor: row.status?.color ?? null,
     imageUrl: row.image_url,
     allottedToName: row.allotted_to ? (custodianNames.get(row.allotted_to) ?? null) : null,
     updatedAt: row.updated_at,

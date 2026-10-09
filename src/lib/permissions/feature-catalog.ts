@@ -50,7 +50,7 @@ export const FEATURE_MODULE_DESCRIPTIONS: Record<FeatureModule, string> = {
   preventive_maintenance: "Recurring maintenance plans and scheduled tickets.",
   documents: "Attachments, document types, and expiry tracking.",
   vendors: "Vendor records and vendor-scoped ticket access.",
-  reports: "Standard reports, CSV export, and bulk import.",
+  reports: "Company-wide CSV and Excel reports.",
   email: "Transactional email templates, rules, and logs.",
   approvals: "Optional approval workflows and pending-approval widgets.",
   departments: "Company department catalog on assets.",

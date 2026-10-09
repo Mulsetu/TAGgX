@@ -1,11 +1,15 @@
 import { assertPermission } from "@/lib/permissions/has-permission";
-import { getCategoriesForAdmin } from "@/modules/categories/actions";
+import { getCategoriesForAdmin, getCategoryUsageForAdmin } from "@/modules/categories/actions";
 import { getDocumentTypesForForm } from "@/modules/assets/actions";
 import { CategoryList } from "./category-list";
 
 export default async function CategoriesPage() {
   await assertPermission("categories", "view");
-  const [categories, documentTypes] = await Promise.all([getCategoriesForAdmin(), getDocumentTypesForForm()]);
+  const [categories, documentTypes, usage] = await Promise.all([
+    getCategoriesForAdmin(),
+    getDocumentTypesForForm(),
+    getCategoryUsageForAdmin(),
+  ]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -16,7 +20,7 @@ export default async function CategoriesPage() {
         </p>
       </div>
 
-      <CategoryList categories={categories} documentTypes={documentTypes} />
+      <CategoryList categories={categories} documentTypes={documentTypes} usage={usage} />
     </div>
   );
 }

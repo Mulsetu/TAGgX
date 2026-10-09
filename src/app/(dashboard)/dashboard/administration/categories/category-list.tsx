@@ -2,17 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { SafeDeleteDialog } from "@/components/setup/safe-delete-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -168,18 +158,18 @@ function EditCategoryDialog({
   documentTypes,
   open,
   onOpenChange,
+  usageCount,
 }: {
   category: CategorySummary | null;
   categories: CategorySummary[];
   documentTypes: DocumentTypeOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  usageCount: number;
 }) {
   const router = useRouter();
   const [state, setState] = useState<CategoryFormState>(initialState);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isSaving, startSave] = useTransition();
-  const [isDeleting, startDelete] = useTransition();
 
   if (!category) return null;
 
@@ -190,19 +180,6 @@ function EditCategoryDialog({
       if (!result.error) {
         router.refresh();
       }
-    });
-  }
-
-  function handleDelete() {
-    setDeleteError(null);
-    startDelete(async () => {
-      const result = await deleteCategoryAction(category!.id);
-      if (result.error) {
-        setDeleteError(result.error);
-        return;
-      }
-      onOpenChange(false);
-      router.refresh();
     });
   }
 
@@ -219,40 +196,19 @@ function EditCategoryDialog({
               {state.error}
             </p>
           ) : null}
-          <DialogFooter className="items-center sm:justify-between">
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button type="button" variant="destructive" size="sm">
-                  Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete {category.name}?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Assets in this category will become uncategorized. This can&apos;t be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                {deleteError ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {deleteError}
-                  </p>
-                ) : null}
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={(e) => {
-                      e.preventDefault();
-                      handleDelete();
-                    }}
-                    disabled={isDeleting}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  >
-                    {isDeleting ? "Deleting..." : "Delete"}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+          <DialogFooter className="items-center gap-2 sm:justify-between">
+            <SafeDeleteDialog
+              itemName={category.name}
+              kind="category"
+              usageCount={usageCount}
+              options={categories.filter((other) => other.id !== category.id).map((other) => ({ id: other.id, name: other.name }))}
+              noneLabel="Leave them uncategorized"
+              onDelete={(replacementId) => deleteCategoryAction(category.id, replacementId)}
+              onDeleted={() => {
+                onOpenChange(false);
+                router.refresh();
+              }}
+            />
             <Button type="submit" disabled={isSaving}>
               {isSaving ? "Saving..." : "Save changes"}
             </Button>
@@ -266,9 +222,11 @@ function EditCategoryDialog({
 export function CategoryList({
   categories,
   documentTypes,
+  usage,
 }: {
   categories: CategorySummary[];
   documentTypes: DocumentTypeOption[];
+  usage: Record<string, number>;
 }) {
   const [selected, setSelected] = useState<CategorySummary | null>(null);
   const [open, setOpen] = useState(false);
@@ -283,14 +241,15 @@ export function CategoryList({
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              <TableHead>Code prefix</TableHead>
               <TableHead>Parent</TableHead>
-              <TableHead>Description</TableHead>
+              <TableHead className="text-right">Assets</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {categories.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={3} className="text-center text-muted-foreground">
+                <TableCell colSpan={4} className="text-center text-muted-foreground">
                   No categories yet.
                 </TableCell>
               </TableRow>
@@ -304,9 +263,19 @@ export function CategoryList({
                     setOpen(true);
                   }}
                 >
-                  <TableCell className="font-medium">{category.name}</TableCell>
+                  <TableCell>
+                    <span className="font-medium">{category.name}</span>
+                    {category.description ? (
+                      <span className="block max-w-xs truncate text-xs text-muted-foreground">{category.description}</span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {category.codePrefix ? `${category.codePrefix}-00001` : "—"}
+                  </TableCell>
                   <TableCell className="text-muted-foreground">{category.parentCategoryName ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{category.description ?? "—"}</TableCell>
+                  <TableCell className="text-right tabular-nums text-muted-foreground">
+                    {(usage[category.id] ?? 0).toLocaleString("en-IN")}
+                  </TableCell>
                 </TableRow>
               ))
             )}
@@ -320,6 +289,7 @@ export function CategoryList({
         documentTypes={documentTypes}
         open={open}
         onOpenChange={setOpen}
+        usageCount={selected ? (usage[selected.id] ?? 0) : 0}
       />
     </div>
   );

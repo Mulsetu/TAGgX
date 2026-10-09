@@ -65,6 +65,8 @@ export interface AssetListItem {
   locationName: string | null;
   statusId: string;
   statusName: string;
+  /** Hex colour set on the status in Company setup, if any. */
+  statusColor: string | null;
   imageUrl: string | null;
   serialNumber: string | null;
   vendorName: string | null;
@@ -81,6 +83,8 @@ export interface RecentAsset {
   categoryName: string | null;
   locationName: string | null;
   statusName: string;
+  /** Hex colour set on the status in Company setup, if any. */
+  statusColor: string | null;
   imageUrl: string | null;
   allottedToName: string | null;
   updatedAt: string;
