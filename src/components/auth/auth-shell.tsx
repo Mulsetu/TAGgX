@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { TagXLogo } from "@/components/layout/brand-logo";
+import { TAGX_LOGO_TRANSPARENT_HEIGHT, TAGX_LOGO_TRANSPARENT_SRC, TAGX_LOGO_TRANSPARENT_WIDTH } from "@/lib/brand";
 import { companyShellStyle } from "@/lib/color";
 
 /**
@@ -40,9 +40,18 @@ export function AuthShell({
         <div className="flex flex-col items-center [&>form]:max-w-none">{children}</div>
       </section>
       {showPoweredBy ? (
-        <p className="flex items-center gap-2 text-xs text-slate-500">
-          Powered by <TagXLogo size={24} className="h-5 w-auto" />
-        </p>
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Powered by</span>
+          {/* Transparent, trimmed wordmark so no white box shows on the tinted page. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={TAGX_LOGO_TRANSPARENT_SRC}
+            alt="TagX by Mulsetu"
+            width={TAGX_LOGO_TRANSPARENT_WIDTH}
+            height={TAGX_LOGO_TRANSPARENT_HEIGHT}
+            className="h-12 w-auto sm:h-14"
+          />
+        </div>
       ) : null}
     </main>
   );

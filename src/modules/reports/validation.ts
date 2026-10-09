@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { REPORT_KEYS } from "./types";
+import { DASHBOARD_PERIODS, REPORT_KEYS } from "./types";
+
+export const dashboardPeriodSchema = z.enum(DASHBOARD_PERIODS).catch("all");
 
 export const exportReportSchema = z.object({
   reportKey: z.enum(REPORT_KEYS),

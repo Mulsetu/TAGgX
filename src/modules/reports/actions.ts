@@ -24,11 +24,12 @@ import { getRequestAuthUser } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit-log";
 import { createAsset, generateAssetCode } from "@/modules/assets/mutations";
 import { getCategoryPrefixForAsset } from "@/modules/categories/actions";
-import { buildReport, getDashboardWidgetData, lookupCatalogs } from "./queries";
+import { PERIOD_STAT_KEYS, buildReport, getDashboardWidgetData, lookupCatalogs, type DashboardRange } from "./queries";
 import { insertImportJob } from "./mutations";
-import { exportReportSchema } from "./validation";
+import { dashboardPeriodSchema, exportReportSchema } from "./validation";
 import type {
   DashboardHomeWidget,
+  DashboardPeriod,
   ImportFormState,
   ReportFormState,
   ReportKey,
@@ -58,7 +59,24 @@ async function tableToXlsxBase64(table: ReportTable): Promise<string> {
   return buffer.toString("base64");
 }
 
-export async function getDashboardHome(): Promise<DashboardHomeWidget[]> {
+const PERIOD_DAYS: Record<Exclude<DashboardPeriod, "all">, number> = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+
+/** Current and previous windows for a period, or null for "All time". */
+function periodRanges(period: DashboardPeriod): { current: DashboardRange; previous: DashboardRange } | null {
+  if (period === "all") return null;
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const length = (PERIOD_DAYS[period] ?? 30) * day;
+  const since = new Date(now - length).toISOString();
+  return {
+    current: { since },
+    previous: { since: new Date(now - 2 * length).toISOString(), until: since },
+  };
+}
+
+export async function getDashboardHome(rawPeriod?: unknown): Promise<DashboardHomeWidget[]> {
+  const period = dashboardPeriodSchema.parse(rawPeriod);
+  const ranges = periodRanges(period);
   const runtime = await getWorkspaceRuntime();
   const configured = runtime.widgets;
 
@@ -82,7 +100,11 @@ export async function getDashboardHome(): Promise<DashboardHomeWidget[]> {
     allowed.push(key);
   }
 
-  const data = await getDashboardWidgetData(allowed);
+  const periodStats = allowed.filter((key) => (PERIOD_STAT_KEYS as readonly string[]).includes(key));
+  const [data, previous] = await Promise.all([
+    getDashboardWidgetData(allowed, ranges?.current),
+    ranges && periodStats.length > 0 ? getDashboardWidgetData(periodStats, ranges.previous) : Promise.resolve(null),
+  ]);
   return allowed
     .sort((a, b) => (configured[a].order ?? 0) - (configured[b].order ?? 0))
     .map((key) => ({
@@ -92,6 +114,7 @@ export async function getDashboardHome(): Promise<DashboardHomeWidget[]> {
       size: configured[key].size,
       href: DASHBOARD_WIDGET_HREFS[key],
       value: data.values[key] ?? (DASHBOARD_WIDGET_KIND[key] === "stat" ? 0 : null),
+      previousValue: previous?.values[key] ?? null,
       chart: data.charts[key] ?? [],
     }));
 }

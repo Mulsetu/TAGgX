@@ -3,9 +3,7 @@ import Link from "next/link";
 import {
   AlertCircle,
   Box,
-  CalendarDays,
   CheckCircle2,
-  ChevronDown,
   MapPin,
   MoreHorizontal,
   PieChart,
@@ -16,7 +14,8 @@ import { DonutChart } from "@/components/charts/donut-chart";
 import { SimpleBarChart } from "@/components/charts/simple-bar-chart";
 import { mediaSrc } from "@/lib/media-url";
 import type { RecentAsset } from "@/modules/assets/types";
-import type { DashboardHomeWidget } from "@/modules/reports/types";
+import { DASHBOARD_PERIOD_LABELS, type DashboardHomeWidget, type DashboardPeriod } from "@/modules/reports/types";
+import { PeriodSelect } from "./period-select";
 
 const STAT_ORDER = [
   "total_assets",
@@ -39,23 +38,29 @@ const STAT_META: Record<
   assets_under_maintenance: { label: "Under maintenance", icon: Wrench, wrap: "bg-violet-50 text-violet-600" },
 };
 
-function PeriodChip() {
-  return (
-    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600">
-      <CalendarDays className="size-3.5 text-slate-400" />
-      Last 30 days
-      <ChevronDown className="size-3.5 text-slate-400" />
-    </span>
-  );
-}
+const PREVIOUS_LABEL: Record<Exclude<DashboardPeriod, "all">, string> = {
+  "7d": "previous 7 days",
+  "30d": "previous 30 days",
+  "90d": "previous 90 days",
+  "365d": "previous 12 months",
+};
 
-function Trend({ percent }: { percent: number }) {
+/** Real comparison only: a percent when there is a baseline, otherwise "N new". */
+function Trend({ current, previous, against }: { current: number; previous: number; against: string }) {
+  if (previous === 0) {
+    return (
+      <p className="mt-3 text-xs text-slate-400">
+        {current === 0 ? "No change" : `${current} new`} vs {against}
+      </p>
+    );
+  }
+  const percent = Math.round(((current - previous) / previous) * 100);
   const up = percent >= 0;
   return (
     <p className={`mt-3 flex items-center gap-1 text-xs font-medium ${up ? "text-emerald-600" : "text-rose-600"}`}>
       <span aria-hidden>{up ? "↑" : "↓"}</span>
       {Math.abs(percent)}%
-      <span className="font-normal text-slate-400">vs last month</span>
+      <span className="font-normal text-slate-400">vs {against}</span>
     </p>
   );
 }
@@ -78,10 +83,12 @@ function formatUpdated(value: string): string {
 function Panel({
   title,
   icon,
+  caption,
   children,
 }: {
   title: string;
   icon: ReactNode;
+  caption: string;
   children: ReactNode;
 }) {
   return (
@@ -91,7 +98,7 @@ function Panel({
           {icon}
           {title}
         </h2>
-        <PeriodChip />
+        <span className="text-xs text-slate-400">{caption}</span>
       </div>
       {children}
     </section>
@@ -103,12 +110,15 @@ export function CompanyHome({
   recentAssets,
   trendPercent,
   canCreate,
+  period,
 }: {
   widgets: DashboardHomeWidget[];
   recentAssets: RecentAsset[];
   trendPercent: number;
   canCreate: boolean;
+  period: DashboardPeriod;
 }) {
+  const caption = period === "all" ? "All time" : `Added · ${DASHBOARD_PERIOD_LABELS[period].toLowerCase()}`;
   const byId = new Map(widgets.map((widget) => [widget.id, widget]));
   const stats = STAT_ORDER.flatMap((id) => {
     const widget = byId.get(id);
@@ -129,14 +139,14 @@ export function CompanyHome({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-[1.65rem] font-semibold tracking-tight text-slate-900">Dashboard</h1>
-          <p className="text-sm text-slate-500">Overview of your company&apos;s asset management.</p>
+          <p className="text-sm text-slate-500">
+            {period === "all"
+              ? "Overview of your company\u2019s asset management."
+              : `Showing assets added and tickets opened in the ${DASHBOARD_PERIOD_LABELS[period].toLowerCase()}.`}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600 shadow-sm">
-            <CalendarDays className="size-4 text-slate-400" />
-            Last 30 days
-            <ChevronDown className="size-4 text-slate-400" />
-          </span>
+          <PeriodSelect value={period} />
           {canCreate ? (
             <Link
               href="/assets/new"
@@ -167,7 +177,15 @@ export function CompanyHome({
                   </span>
                 </div>
                 <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">{widget.value ?? 0}</p>
-                <Trend percent={widget.id === "total_assets" ? trendPercent : 0} />
+                {period !== "all" && widget.previousValue !== null ? (
+                  <Trend current={widget.value ?? 0} previous={widget.previousValue} against={PREVIOUS_LABEL[period]} />
+                ) : period === "all" && widget.id === "total_assets" ? (
+                  <p className={`mt-3 flex items-center gap-1 text-xs font-medium ${trendPercent >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    <span aria-hidden>{trendPercent >= 0 ? "↑" : "↓"}</span>
+                    {Math.abs(trendPercent)}%
+                    <span className="font-normal text-slate-400">added vs last month</span>
+                  </p>
+                ) : null}
               </Link>
             );
           })}
@@ -177,7 +195,7 @@ export function CompanyHome({
       {charts.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
           {location ? (
-            <Panel title="Assets by location" icon={<MapPin className="size-4 text-[hsl(var(--brand-primary))]" />}>
+            <Panel title="Assets by location" caption={caption} icon={<MapPin className="size-4 text-[hsl(var(--brand-primary))]" />}>
               {location.chart.length === 0 ? (
                 <p className="flex h-[220px] items-center justify-center text-sm text-slate-400">No data yet</p>
               ) : (
@@ -186,7 +204,7 @@ export function CompanyHome({
             </Panel>
           ) : null}
           {category ? (
-            <Panel title="Assets by category" icon={<Box className="size-4 text-[hsl(var(--brand-primary))]" />}>
+            <Panel title="Assets by category" caption={caption} icon={<Box className="size-4 text-[hsl(var(--brand-primary))]" />}>
               {category.chart.length === 0 ? (
                 <p className="flex h-40 items-center justify-center text-sm text-slate-400">No data yet</p>
               ) : (
@@ -199,7 +217,7 @@ export function CompanyHome({
             </Panel>
           ) : null}
           {status ? (
-            <Panel title="Assets by status" icon={<PieChart className="size-4 text-primary" />}>
+            <Panel title="Assets by status" caption={caption} icon={<PieChart className="size-4 text-primary" />}>
               {status.chart.length === 0 ? (
                 <p className="flex h-40 items-center justify-center text-sm text-slate-400">No data yet</p>
               ) : (
