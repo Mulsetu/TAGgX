@@ -339,6 +339,8 @@ export default async function AssetDetailPage({ params }: AssetDetailPageProps) 
           showTransfer={canTransfer}
           showDispose={canDispose}
           disposalMethods={options.disposalMethods}
+          assignedToName={asset.allottedToName}
+          assignedSince={asset.allotmentDate ? formatWhen(asset.allotmentDate) : null}
         />
       ),
     });

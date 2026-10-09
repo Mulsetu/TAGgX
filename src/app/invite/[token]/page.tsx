@@ -22,7 +22,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
 
   if (invite.isAccepted || invite.isExpired) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-2 px-4 text-center">
+      <main className="flex min-h-svh flex-col items-center justify-center gap-2 px-4 text-center">
         <BrandLogo alt="TagX by Mulsetu" size={80} className="mx-auto h-14 w-auto max-w-[16rem]" />
         <h1 className="text-xl font-semibold">
           {invite.isAccepted ? "This invite has already been used" : "This invite has expired"}
@@ -35,7 +35,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-8 px-4">
+    <main className="flex min-h-svh flex-col items-center justify-center gap-8 px-4">
       <div className="flex flex-col items-center gap-3">
         <BrandLogo alt="TagX by Mulsetu" size={80} className="h-14 w-auto max-w-[16rem]" />
         <h1 className="text-xl font-semibold">Welcome to {invite.companyName}</h1>

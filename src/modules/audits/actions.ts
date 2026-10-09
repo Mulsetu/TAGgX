@@ -17,8 +17,7 @@ import type {
   AuditExportResult,
   AuditFormState,
   AuditItemListResult,
-  AuditListItem,
-  AuditListResult,
+  AuditListPage,
   AuditLocationOption,
   AuditScanMatch,
   AuditScanState,
@@ -70,31 +69,38 @@ function getCompanyIdFromHeaders(): string | null {
 
 function revalidateAudit(id?: string) {
   revalidatePath(ADMIN_PATH);
-  revalidatePath("/floor/audits");
   if (id) {
     revalidatePath(`${ADMIN_PATH}/${id}`);
     revalidatePath(`/floor/audits/${id}`);
   }
 }
 
+/**
+ * The single Audits list. With no explicit filter it opens on running
+ * audits (what floor staff need), falling back to all audits when none
+ * are running so the page is never empty for no reason.
+ */
 export async function getAuditsForAdmin(
   rawSearchParams: Record<string, string | string[] | undefined>,
-): Promise<AuditListResult> {
+): Promise<AuditListPage> {
   if (!(await canUseAudits("view"))) {
-    return { items: [], totalCount: 0, page: 1, pageSize: 25 };
+    return { items: [], totalCount: 0, page: 1, pageSize: 25, filter: "all" };
   }
 
-  const parsed = auditListQuerySchema.safeParse({ page: rawSearchParams.page });
+  const parsed = auditListQuerySchema.safeParse({ page: rawSearchParams.page, status: rawSearchParams.status });
   const page = parsed.success ? parsed.data.page : 1;
-  return listAudits(page);
-}
+  const requested = parsed.success ? parsed.data.status : undefined;
 
-export async function getActiveAuditsForFloor(): Promise<AuditListItem[]> {
-  if (!(await canUseAudits("view"))) {
-    return [];
+  if (requested) {
+    const result = await listAudits(page, undefined, requested === "all" ? undefined : requested);
+    return { ...result, filter: requested };
   }
-  const result = await listAudits(1, 50, "active");
-  return result.items;
+
+  const running = await listAudits(page, undefined, "active");
+  if (running.totalCount > 0) {
+    return { ...running, filter: "active" };
+  }
+  return { ...(await listAudits(page)), filter: "all" };
 }
 
 export async function getAuditDetail(id: string): Promise<AuditDetail | null> {

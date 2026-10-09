@@ -84,6 +84,9 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: TAGX_TEAL,
+  // Light-only UI: stops mobile browsers' auto-dark modes (Chrome, Samsung
+  // Internet) from recolouring the brand theme.
+  colorScheme: "only light",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",

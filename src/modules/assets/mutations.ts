@@ -124,9 +124,16 @@ export async function updateAsset(
 ): Promise<AssetMutationResult> {
   const supabase = createClient();
 
+  // Assignment (allotted_to / allotment_date) is owned by the custody
+  // flow — handover/transfer in the asset's Actions tab — so a regular
+  // edit never overwrites who currently holds the asset.
+  const fields: Record<string, unknown> = buildAssetFields(input, customFields);
+  delete fields.allotted_to;
+  delete fields.allotment_date;
+
   const { data, error } = await supabase
     .from("assets")
-    .update({ asset_code: assetCode, ...buildAssetFields(input, customFields) })
+    .update({ asset_code: assetCode, ...fields })
     .eq("id", id)
     .select("id")
     .single<{ id: string }>();

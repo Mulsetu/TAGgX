@@ -1,26 +1,29 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ChevronLeft, MapPin } from "lucide-react";
 import { assertModule } from "@/lib/permissions/features";
 import { assertPermission, requirePermission } from "@/lib/permissions/has-permission";
+import { AuditProgressBar, AuditStatTiles } from "@/components/audits/audit-progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getAuditDetail, getAuditItemsForDetail, getAuditLocationsForForm, getAuditScanCatalog } from "@/modules/audits/actions";
+import { getAuditDetail, getAuditItemsForDetail, getAuditScanCatalog } from "@/modules/audits/actions";
 import { AUDIT_STATUS_LABELS } from "@/modules/audits/types";
 import { AuditToolbar } from "./audit-toolbar";
 import { AuditItemTable } from "./item-table";
-import { AuditScanForm } from "@/components/audits/audit-scan-form";
 
 interface AuditDetailPageProps {
   params: { id: string };
   searchParams: Record<string, string | string[] | undefined>;
 }
 
-const TABS = [
-  { id: "all", label: "All" },
-  { id: "unverified", label: "Unverified" },
-  { id: "verified", label: "Verified" },
-  { id: "exceptions", label: "Exceptions" },
-] as const;
+const TABS = ["all", "unverified", "verified", "exceptions"] as const;
+
+const TAB_TITLES: Record<(typeof TABS)[number], string> = {
+  all: "All assets",
+  unverified: "Left to scan",
+  verified: "OK",
+  exceptions: "Problems",
+};
 
 function tabHref(auditId: string, tab: string, page?: number, exception?: string): string {
   const params = new URLSearchParams();
@@ -43,11 +46,10 @@ export default async function AuditDetailPage({ params, searchParams }: AuditDet
 
   const tabRaw = typeof searchParams.tab === "string" ? searchParams.tab : "all";
   const exceptionRaw = typeof searchParams.exception === "string" ? searchParams.exception : "";
-  const tab = TABS.some((entry) => entry.id === tabRaw) ? tabRaw : "all";
+  const tab = TABS.find((entry) => entry === tabRaw) ?? "all";
 
-  const [items, locations, catalog, canEdit, canDelete] = await Promise.all([
+  const [items, catalog, canEdit, canDelete] = await Promise.all([
     getAuditItemsForDetail(params.id, searchParams),
-    getAuditLocationsForForm(),
     getAuditScanCatalog(),
     requirePermission("audits", "edit"),
     requirePermission("audits", "delete"),
@@ -57,111 +59,101 @@ export default async function AuditDetailPage({ params, searchParams }: AuditDet
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3">
-        <Link href="/dashboard/administration/audits" className="text-sm text-muted-foreground hover:underline">
-          ← All audits
-        </Link>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">{audit.name}</h1>
-              <Badge variant={audit.status === "active" ? "default" : audit.status === "completed" ? "secondary" : "outline"}>
-                {AUDIT_STATUS_LABELS[audit.status]}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {audit.scheduledDate} · {audit.locationName ?? "All locations"}
-              {audit.createdByName ? ` · Created by ${audit.createdByName}` : ""}
-            </p>
-          </div>
-          <AuditToolbar audit={audit} canEdit={canEdit} canDelete={canDelete} />
-        </div>
-      </div>
+      <Link
+        href="/dashboard/administration/audits"
+        className="flex items-center gap-1 text-sm text-muted-foreground hover:underline"
+      >
+        <ChevronLeft className="size-4" /> All audits
+      </Link>
 
-      <div className="flex flex-col gap-2 rounded-lg border p-4">
-        <div className="flex flex-col gap-1 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <span className="font-medium">Progress</span>
-          <span className="text-muted-foreground">
-            {audit.progressPercent}% complete · {audit.verifiedCount} verified · {audit.exceptionCount}{" "}
-            exceptions · {audit.unverifiedCount} unverified
-            {audit.unresolvedExceptionCount > 0 ? ` · ${audit.unresolvedExceptionCount} unresolved` : ""}
-          </span>
+      <header className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight">{audit.name}</h1>
+          <Badge variant={audit.status === "active" ? "default" : audit.status === "completed" ? "secondary" : "outline"}>
+            {AUDIT_STATUS_LABELS[audit.status]}
+          </Badge>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-muted">
-          <div className="h-full bg-primary" style={{ width: `${audit.progressPercent}%` }} />
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Started {audit.startedAt ? new Date(audit.startedAt).toLocaleString("en-US") : "—"}
-          {" · "}
-          Completed {audit.completedAt ? new Date(audit.completedAt).toLocaleString("en-US") : "—"}
+        <p className="flex flex-wrap items-center gap-x-1 text-sm text-muted-foreground">
+          <MapPin className="size-3.5" />
+          {audit.locationName ?? "All locations"} · {audit.scheduledDate}
+          {audit.createdByName ? ` · by ${audit.createdByName}` : ""}
         </p>
-      </div>
+        {audit.status !== "draft" ? <AuditProgressBar audit={audit} /> : null}
+      </header>
 
-      {audit.status === "active" && canEdit ? (
-        <div className="flex flex-col gap-3">
-          <Button asChild variant="outline" className="w-full sm:w-auto md:hidden" size="touch">
-            <Link href={`/floor/audits/${audit.id}`}>Open floor mode on this phone</Link>
-          </Button>
-          <AuditScanForm
-            auditId={audit.id}
-            locations={locations}
-            conditions={catalog.conditions}
-            exceptionTypes={catalog.exceptionTypes}
-          />
-        </div>
-      ) : null}
+      <AuditToolbar audit={audit} canEdit={canEdit} canDelete={canDelete} />
 
-      {audit.status === "draft" ? (
-        <p className="text-sm text-muted-foreground">Start this audit to scan QR tags and record verifications.</p>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        {TABS.map((entry) => (
-          <Button key={entry.id} asChild variant={tab === entry.id ? "default" : "outline"} className="min-h-11">
-            <Link href={tabHref(audit.id, entry.id, undefined, exceptionRaw)}>{entry.label}</Link>
-          </Button>
-        ))}
-        {catalog.exceptionTypes.map((type) => (
-          <Button
-            key={type.key}
-            asChild
-            variant={exceptionRaw === type.key ? "secondary" : "outline"}
-            className="min-h-11"
-          >
-            <Link href={tabHref(audit.id, "exceptions", undefined, exceptionRaw === type.key ? "" : type.key)}>
-              {type.name}
-            </Link>
-          </Button>
-        ))}
-      </div>
-
-      <AuditItemTable
-        auditId={audit.id}
-        items={items.items}
-        canEdit={canEdit}
-        auditActive={audit.status === "active"}
-        requirePhotoOnException={audit.requirePhotoOnException}
+      <AuditStatTiles
+        stats={[
+          { label: "All assets", value: audit.totalItems, tone: "neutral", href: tabHref(audit.id, "all"), active: tab === "all" },
+          { label: "OK", value: audit.verifiedCount, tone: "good", href: tabHref(audit.id, "verified"), active: tab === "verified" },
+          {
+            label: audit.unresolvedExceptionCount > 0 ? `Problems (${audit.unresolvedExceptionCount} open)` : "Problems",
+            value: audit.exceptionCount,
+            tone: "bad",
+            href: tabHref(audit.id, "exceptions"),
+            active: tab === "exceptions",
+          },
+          { label: "Left to scan", value: audit.unverifiedCount, tone: "pending", href: tabHref(audit.id, "unverified"), active: tab === "unverified" },
+        ]}
       />
 
-      {totalPages > 1 ? (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Page {items.page} of {totalPages}
-          </span>
-          <div className="flex gap-2">
-            {items.page > 1 ? (
-              <Button asChild variant="outline" className="min-h-11">
-                <Link href={tabHref(audit.id, tab, items.page - 1, exceptionRaw)}>Previous</Link>
-              </Button>
-            ) : null}
-            {items.page < totalPages ? (
-              <Button asChild variant="outline" className="min-h-11">
-                <Link href={tabHref(audit.id, tab, items.page + 1, exceptionRaw)}>Next</Link>
-              </Button>
-            ) : null}
-          </div>
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-slate-900">
+            {TAB_TITLES[tab]} <span className="font-normal text-slate-500">({items.totalCount})</span>
+          </h2>
         </div>
-      ) : null}
+
+        {tab === "exceptions" && catalog.exceptionTypes.length > 0 ? (
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            <Button asChild size="sm" variant={exceptionRaw ? "outline" : "secondary"} className="shrink-0 rounded-full">
+              <Link href={tabHref(audit.id, "exceptions")}>Any problem</Link>
+            </Button>
+            {catalog.exceptionTypes.map((type) => (
+              <Button
+                key={type.key}
+                asChild
+                size="sm"
+                variant={exceptionRaw === type.key ? "secondary" : "outline"}
+                className="shrink-0 rounded-full"
+              >
+                <Link href={tabHref(audit.id, "exceptions", undefined, exceptionRaw === type.key ? "" : type.key)}>
+                  {type.name}
+                </Link>
+              </Button>
+            ))}
+          </div>
+        ) : null}
+
+        <AuditItemTable
+          auditId={audit.id}
+          items={items.items}
+          canEdit={canEdit}
+          auditActive={audit.status === "active"}
+          requirePhotoOnException={audit.requirePhotoOnException}
+        />
+
+        {totalPages > 1 ? (
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              Page {items.page} of {totalPages}
+            </span>
+            <div className="flex gap-2">
+              {items.page > 1 ? (
+                <Button asChild variant="outline" className="min-h-11">
+                  <Link href={tabHref(audit.id, tab, items.page - 1, exceptionRaw)}>Previous</Link>
+                </Button>
+              ) : null}
+              {items.page < totalPages ? (
+                <Button asChild variant="outline" className="min-h-11">
+                  <Link href={tabHref(audit.id, tab, items.page + 1, exceptionRaw)}>Next</Link>
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

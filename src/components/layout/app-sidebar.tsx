@@ -9,7 +9,6 @@ import {
   ClipboardCheck,
   LayoutDashboard,
   Package,
-  QrCode,
   Settings,
   SlidersHorizontal,
   Store,
@@ -170,20 +169,13 @@ export function AppSidebar({
               ) : null}
 
               {adminNav.audits ? (
-                <>
-                  <SidebarLink
-                    href="/floor/audits"
-                    label="Floor audit"
-                    icon={<ClipboardCheck />}
-                    active={isPathActive("/floor/audits")}
-                  />
-                  <SidebarLink
-                    href={adminNav.audits.href}
-                    label="Audits"
-                    icon={<QrCode />}
-                    active={isPathActive(adminNav.audits.href) && !isPathActive("/floor/audits")}
-                  />
-                </>
+                <SidebarLink
+                  href={adminNav.audits.href}
+                  label="Audits"
+                  icon={<ClipboardCheck />}
+                  // The per-audit scanner lives under /floor/audits/[id].
+                  active={isPathActive(adminNav.audits.href) || isPathActive("/floor/audits")}
+                />
               ) : null}
 
               {adminNav.reports ? (

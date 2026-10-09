@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function CheckEmailPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-white text-[#003848]">
+    <div className="flex min-h-svh flex-col bg-white text-[#003848]">
       <MarketingHeader />
       <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-4 px-4 py-16">
         <h1 className="text-2xl font-semibold tracking-tight">Check your email</h1>

@@ -32,9 +32,9 @@ export const AUDIT_STATUS_LABELS: Record<AuditStatus, string> = {
 };
 
 export const AUDIT_ITEM_STATUS_LABELS: Record<AuditItemStatus, string> = {
-  unverified: "Unverified",
-  verified: "Verified",
-  exception: "Exception",
+  unverified: "Not scanned",
+  verified: "OK",
+  exception: "Problem",
 };
 
 export interface AuditLocationOption {
@@ -61,6 +61,13 @@ export interface AuditListResult {
   totalCount: number;
   page: number;
   pageSize: number;
+}
+
+export type AuditListFilter = "all" | AuditStatus;
+
+export interface AuditListPage extends AuditListResult {
+  /** The filter actually applied — see getAuditsForAdmin's default. */
+  filter: AuditListFilter;
 }
 
 export interface AuditDetail {
