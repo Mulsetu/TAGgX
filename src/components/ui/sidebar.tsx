@@ -4,6 +4,7 @@ import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 import { PanelLeft } from "lucide-react"
+import { usePathname } from "next/navigation"
 
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
@@ -40,6 +41,11 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  // The mobile sidebar is a Sheet portaled to <body>, outside the provider's
+  // wrapper div — so it re-applies the wrapper's theme class + CSS variables
+  // (e.g. "company-shell" and companyShellStyle()) instead of inheriting them.
+  themeClassName?: string
+  themeStyle?: React.CSSProperties
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -75,6 +81,12 @@ const SidebarProvider = React.forwardRef<
   ) => {
     const isMobile = useIsMobile()
     const [openMobile, setOpenMobile] = React.useState(false)
+    const pathname = usePathname()
+
+    // Close the mobile sheet once navigation lands on a new route.
+    React.useEffect(() => {
+      setOpenMobile(false)
+    }, [pathname])
 
     // This is the internal state of the sidebar.
     // We use openProp and setOpenProp for control from outside the component.
@@ -131,8 +143,10 @@ const SidebarProvider = React.forwardRef<
         openMobile,
         setOpenMobile,
         toggleSidebar,
+        themeClassName: className,
+        themeStyle: style,
       }),
-      [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+      [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, className, style]
     )
 
     return (
@@ -181,7 +195,7 @@ const Sidebar = React.forwardRef<
     },
     ref
   ) => {
-    const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+    const { isMobile, state, openMobile, setOpenMobile, themeClassName, themeStyle } = useSidebar()
 
     if (collapsible === "none") {
       return (
@@ -204,13 +218,24 @@ const Sidebar = React.forwardRef<
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            className={cn(
+              themeClassName,
+              "w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            )}
             style={
               {
+                ...themeStyle,
                 "--sidebar-width": SIDEBAR_WIDTH_MOBILE,
               } as React.CSSProperties
             }
             side={side}
+            // Also covers links to the current page, where the pathname
+            // effect above never fires.
+            onClickCapture={(event) => {
+              if (event.target instanceof Element && event.target.closest("a[href]")) {
+                setOpenMobile(false)
+              }
+            }}
           >
             <SheetHeader className="sr-only">
               <SheetTitle>Sidebar</SheetTitle>

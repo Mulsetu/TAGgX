@@ -9,7 +9,7 @@ export function SignOutButton({
   variant = "menu",
   from,
 }: {
-  variant?: "menu" | "ghost";
+  variant?: "menu" | "ghost" | "icon";
   from: "admin" | "tenant";
 }) {
   const [isPending, startTransition] = useTransition();
@@ -19,6 +19,22 @@ export function SignOutButton({
       const { redirectPath } = await signOutAction(from);
       window.location.assign(redirectPath);
     });
+  }
+
+  if (variant === "icon") {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-10 rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 md:hidden"
+        onClick={handleSignOut}
+        disabled={isPending}
+      >
+        <LogOut className="h-4 w-4" />
+        <span className="sr-only">{isPending ? "Signing out..." : "Sign out"}</span>
+      </Button>
+    );
   }
 
   if (variant === "ghost") {

@@ -406,7 +406,8 @@ export function AssetBrowser({
                 ))}
               </select>
             </label>
-            <div className="inline-flex h-9 overflow-hidden rounded-lg border border-slate-200">
+            {/* Phones always get cards (below), so the toggle only matters from md up. */}
+            <div className="hidden h-9 overflow-hidden rounded-lg border border-slate-200 md:inline-flex">
               <button
                 type="button"
                 aria-label="List view"
@@ -458,8 +459,9 @@ export function AssetBrowser({
                   : "Ask an administrator to add assets for this company."}
             </p>
           </div>
-        ) : view === "grid" ? (
-          <ul className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+        ) : (
+          <>
+          <ul className={`grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3 ${view === "list" ? "md:hidden" : ""}`}>
             {items.map((asset) => (
               <li key={asset.id} className="rounded-xl border border-slate-200 p-3">
                 <Link href={`/assets/${asset.id}`} className="flex gap-3">
@@ -477,8 +479,8 @@ export function AssetBrowser({
               </li>
             ))}
           </ul>
-        ) : (
-          <div className="overflow-x-auto">
+          {view === "list" ? (
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[880px] text-left text-sm">
               <thead className="bg-slate-50 text-xs font-medium text-slate-500">
                 <tr>
@@ -553,6 +555,8 @@ export function AssetBrowser({
               </tbody>
             </table>
           </div>
+          ) : null}
+          </>
         )}
 
         {totalPages > 1 ? (

@@ -27,7 +27,7 @@ export default async function ForgotPasswordPage({ params }: ForgotPasswordPageP
 
   return (
     <main
-      className="flex min-h-screen flex-col items-center justify-center gap-8 px-4"
+      className="flex min-h-svh flex-col items-center justify-center gap-8 px-4"
       style={companyShellStyle(company.primaryColor, company.secondaryColor)}
     >
       <div className="flex flex-col items-center gap-3">

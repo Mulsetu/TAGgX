@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
+import { SignOutButton } from "@/components/layout/sign-out-button";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { companyShellStyle } from "@/lib/color";
 import { checkSuperAdmin } from "@/lib/permissions/super-admin";
@@ -35,7 +36,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <SidebarInset className="bg-[#F4F7FB]">
         <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4">
           <SidebarTrigger className="size-10 text-slate-600 md:size-8" />
-          <p className="text-sm font-medium text-slate-700">Platform admin</p>
+          <p className="flex-1 text-sm font-medium text-slate-700">Platform admin</p>
+          {/* Mobile only — on desktop, sign out lives in the sidebar's user menu. */}
+          <SignOutButton variant="icon" from="admin" />
         </header>
         <main className="company-page flex-1 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] @container md:p-6">
           {children}

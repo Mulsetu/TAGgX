@@ -593,7 +593,8 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
           ) : null}
         </div>
 
-        {field("allottedTo").show || field("allotmentDate").show ? (
+        {/* Create only: once the asset exists, assignment moves to the Actions tab (handover/transfer). */}
+        {mode === "create" && (field("allottedTo").show || field("allotmentDate").show) ? (
         <div className="flex flex-col gap-4 rounded-md border p-3">
           <p className="text-xs font-medium text-muted-foreground">Allotment</p>
           {field("allottedTo").show ? (
@@ -618,12 +619,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
             <input type="hidden" name="allotmentDate" value={asset?.allotmentDate ?? ""} />
           )}
         </div>
-        ) : (
-          <>
-            <input type="hidden" name="allottedTo" value={asset?.allottedTo ?? ""} />
-            <input type="hidden" name="allotmentDate" value={asset?.allotmentDate ?? ""} />
-          </>
-        )}
+        ) : null}
 
         <div className="flex flex-col gap-4 rounded-md border p-3">
           <p className="text-xs font-medium text-muted-foreground">Warranty / AMC / Insurance</p>

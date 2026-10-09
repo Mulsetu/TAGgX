@@ -18,7 +18,7 @@ export default function InquirePage() {
   const siteUrl = getSiteUrl();
 
   return (
-    <div className="flex min-h-screen flex-col bg-white text-[#003848]">
+    <div className="flex min-h-svh flex-col bg-white text-[#003848]">
       <JsonLd
         data={{
           "@context": "https://schema.org",

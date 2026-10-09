@@ -470,12 +470,13 @@ function readAssetFormData(formData: FormData) {
 
 async function missingConfiguredFields(
   data: import("./validation").AssetFormInput,
+  skip: readonly string[] = [],
 ): Promise<Record<string, string> | null> {
   const runtime = await getWorkspaceRuntime();
   const fieldErrors: Record<string, string> = {};
   for (const key of ASSET_FIELD_KEYS) {
     const field = runtime.fields[key];
-    if (!field.enabled || !field.required) {
+    if (!field.enabled || !field.required || skip.includes(key)) {
       continue;
     }
     const value = data[key];
@@ -637,7 +638,8 @@ export async function updateAssetAction(
     return { error: "Check the highlighted fields.", fieldErrors: flattenIssues(parsed.error) };
   }
 
-  const configuredErrors = await missingConfiguredFields(parsed.data);
+  // Assignment isn't edited here (Actions tab owns it — see updateAsset), so don't require it.
+  const configuredErrors = await missingConfiguredFields(parsed.data, ["allottedTo", "allotmentDate"]);
   if (configuredErrors) {
     return { error: "Check the highlighted fields.", fieldErrors: configuredErrors };
   }

@@ -224,7 +224,38 @@ export function CompanyHome({
         {recentAssets.length === 0 ? (
           <p className="px-5 pb-6 text-sm text-slate-400">No assets yet.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-slate-100 border-t border-slate-100 md:hidden">
+            {recentAssets.map((asset) => {
+              const image = mediaSrc(asset.imageUrl);
+              return (
+                <li key={asset.id}>
+                  <Link href={`/assets/${asset.id}`} className="flex items-center gap-3 px-5 py-3 active:bg-slate-50">
+                    <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100 text-slate-400">
+                      {image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={image} alt="" className="size-full object-cover" />
+                      ) : (
+                        <Box className="size-4" />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-slate-800">{asset.name}</span>
+                      <span className="block truncate text-xs text-slate-500">
+                        {asset.assetCode}
+                        {asset.locationName ? ` · ${asset.locationName}` : ""}
+                      </span>
+                    </span>
+                    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(asset.statusName)}`}>
+                      <span className="size-1.5 rounded-full bg-current" />
+                      {asset.statusName}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-y border-slate-100 text-left text-xs text-slate-400">
@@ -288,6 +319,7 @@ export function CompanyHome({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
 

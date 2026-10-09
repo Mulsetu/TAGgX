@@ -16,6 +16,7 @@ export const auditIdSchema = z.string().uuid();
 
 export const auditListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
+  status: z.enum(["all", "active", "draft", "completed"]).optional(),
 });
 
 export const auditItemListQuerySchema = z.object({

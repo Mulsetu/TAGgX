@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 function barcodeDetectorAvailable(): boolean {
@@ -95,21 +96,25 @@ export function QrCameraScanner({ onResult }: { onResult: (value: string) => voi
     <div className="flex flex-col gap-2">
       {open ? (
         <div className="overflow-hidden rounded-lg border bg-black">
-          <video ref={videoRef} className="aspect-[3/4] w-full object-cover" playsInline muted autoPlay />
+          <video ref={videoRef} className="aspect-[3/4] max-h-[60vh] w-full object-cover" playsInline muted autoPlay />
           <Button type="button" variant="secondary" className="rounded-none" size="touch" onClick={() => setOpen(false)}>
             Stop camera
           </Button>
         </div>
       ) : (
-        <Button type="button" variant="outline" size="touch" onClick={() => setOpen(true)}>
-          Scan with this phone&apos;s camera
+        <Button type="button" size="touch" className="h-14 text-base" onClick={() => setOpen(true)}>
+          <ScanLine className="size-5" />
+          Scan QR code
         </Button>
       )}
-      {error ? <p className="text-sm text-muted-foreground">{error}</p> : null}
-      <p className="text-xs text-muted-foreground">
-        iPhone: open Camera, point at the sticker, tap the TagX notification. Stay signed in on this
-        phone first.
-      </p>
+      {error ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{error}</p> : null}
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer select-none">Camera not working?</summary>
+        <p className="mt-1">
+          Open your phone&apos;s Camera app, point it at the sticker and tap the TagX link (stay signed in on
+          this phone). Or type the asset code below.
+        </p>
+      </details>
     </div>
   );
 }

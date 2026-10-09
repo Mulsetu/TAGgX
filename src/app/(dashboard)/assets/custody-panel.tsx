@@ -36,6 +36,8 @@ export function CustodyPanel({
   showTransfer = true,
   showDispose = true,
   disposalMethods = [],
+  assignedToName = null,
+  assignedSince = null,
 }: {
   assetId: string;
   users: AssetOption[];
@@ -48,6 +50,8 @@ export function CustodyPanel({
   showTransfer?: boolean;
   showDispose?: boolean;
   disposalMethods?: string[];
+  assignedToName?: string | null;
+  assignedSince?: string | null;
 }) {
   const [state, setState] = useState<CustodyFormState>(initial);
   const [isPending, startTransition] = useTransition();
@@ -61,6 +65,13 @@ export function CustodyPanel({
   return (
     <section className="flex flex-col gap-4">
       <h2 className="text-sm font-medium">Custody</h2>
+      <p className="rounded-lg border bg-slate-50 px-3 py-2 text-sm">
+        <span className="text-muted-foreground">Currently assigned to: </span>
+        <span className="font-medium">{assignedToName ?? "Unassigned"}</span>
+        {assignedToName && assignedSince ? (
+          <span className="text-muted-foreground"> · since {assignedSince}</span>
+        ) : null}
+      </p>
       {pendingTransfer ? (
         <div className="flex flex-col gap-2 rounded-lg border p-3">
           <p className="text-sm font-medium">Pending transfer</p>

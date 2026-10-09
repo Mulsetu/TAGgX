@@ -14,19 +14,17 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { mediaSrc } from "@/lib/media-url";
 import { markMissingAction, resolveAuditItemAction } from "@/modules/audits/actions";
 import { AUDIT_ITEM_STATUS_LABELS, auditExceptionLabel } from "@/modules/audits/types";
 import type { AuditFormState, AuditItem } from "@/modules/audits/types";
+
+const STATUS_VARIANT: Record<AuditItem["status"], "outline" | "secondary" | "destructive"> = {
+  unverified: "outline",
+  verified: "secondary",
+  exception: "destructive",
+};
 
 function formatCondition(value: string | null): string {
   if (!value) return "—";
@@ -105,142 +103,97 @@ export function AuditItemTable({
         </p>
       ) : null}
       {items.length === 0 ? (
-        <p className="rounded-lg border p-4 text-center text-sm text-muted-foreground">No assets in this view.</p>
+        <p className="rounded-xl border border-dashed bg-white p-6 text-center text-sm text-muted-foreground">
+          Nothing here.
+        </p>
       ) : (
-        <>
-          <ul className="flex flex-col gap-3 md:hidden">
-            {items.map((item) => (
-              <li key={item.id} className="flex flex-col gap-3 rounded-xl border p-4">
-                <div>
-                  <Link href={`/assets/${item.assetId}`} className="font-medium hover:underline">
-                    {item.assetName}
-                  </Link>
-                  <p className="text-xs text-muted-foreground">{item.assetCode}</p>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Expected: {item.expectedLocationName ?? "—"} · {formatCondition(item.expectedCondition)}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Found: {item.foundLocationName ?? "—"} · {formatCondition(item.foundCondition)}
-                </p>
-                <div>
-                  <Badge variant={item.status === "exception" ? "destructive" : item.status === "verified" ? "secondary" : "outline"}>
-                    {AUDIT_ITEM_STATUS_LABELS[item.status]}
-                  </Badge>
-                  {item.exceptionTypes.length > 0 ? (
-                    <p className="mt-1 text-xs text-destructive">
-                      {item.exceptionTypes.map(auditExceptionLabel).join(", ")}
-                      {item.resolved ? " · resolved" : ""}
-                    </p>
-                  ) : null}
-                  {item.notes ? <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p> : null}
+        <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          {items.map((item) => {
+            const movedLocation =
+              item.foundLocationName && item.foundLocationName !== item.expectedLocationName;
+            const changedCondition =
+              item.foundCondition && item.foundCondition !== item.expectedCondition;
+            return (
+              <li key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex min-w-0 gap-3">
                   {item.exceptionPhotoPath ? (
                     // Proxied private R2 object — same-company session required.
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={mediaSrc(item.exceptionPhotoPath) ?? ""}
-                      alt={`Exception photo for ${item.assetCode}`}
-                      className="mt-2 h-24 w-24 rounded-md border object-cover"
+                      alt={`Photo for ${item.assetCode}`}
+                      className="size-14 shrink-0 rounded-md border object-cover"
                     />
                   ) : null}
-                  {item.resolutionNotes ? (
-                    <p className="mt-1 text-xs text-muted-foreground">Resolution: {item.resolutionNotes}</p>
-                  ) : null}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link href={`/assets/${item.assetId}`} className="font-medium text-slate-900 hover:underline">
+                        {item.assetName}
+                      </Link>
+                      <Badge variant={STATUS_VARIANT[item.status]}>
+                        {item.status === "exception" && item.resolved ? "Resolved" : AUDIT_ITEM_STATUS_LABELS[item.status]}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-slate-500">{item.assetCode}</p>
+
+                    {item.status === "unverified" ? (
+                      <p className="mt-1 text-sm text-slate-600">Should be at {item.expectedLocationName ?? "—"}</p>
+                    ) : null}
+
+                    {item.status === "verified" ? (
+                      <p className="mt-1 text-sm text-slate-600">
+                        Found at {item.foundLocationName ?? item.expectedLocationName ?? "—"}
+                        {item.foundCondition ? ` · ${formatCondition(item.foundCondition)}` : ""}
+                      </p>
+                    ) : null}
+
+                    {item.status === "exception" ? (
+                      <div className="mt-1 flex flex-col gap-0.5 text-sm">
+                        {item.exceptionTypes.length > 0 ? (
+                          <p className="font-medium text-red-600">
+                            {item.exceptionTypes.map(auditExceptionLabel).join(", ")}
+                          </p>
+                        ) : null}
+                        {movedLocation ? (
+                          <p className="text-slate-600">
+                            Found at {item.foundLocationName}, should be at {item.expectedLocationName ?? "—"}
+                          </p>
+                        ) : null}
+                        {changedCondition ? (
+                          <p className="text-slate-600">
+                            Condition {formatCondition(item.foundCondition)}, expected{" "}
+                            {formatCondition(item.expectedCondition)}
+                          </p>
+                        ) : null}
+                        {item.notes ? <p className="text-slate-500">&ldquo;{item.notes}&rdquo;</p> : null}
+                        {item.resolutionNotes ? (
+                          <p className="text-emerald-700">Resolved: {item.resolutionNotes}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
+
                 {canEdit && auditActive && item.status === "unverified" ? (
                   <Button
                     type="button"
                     variant="outline"
-                    size="touch"
+                    className="min-h-11 shrink-0"
                     disabled={isPending}
                     onClick={() => handleMissing(item.id)}
                   >
-                    Missing
+                    Mark missing
                   </Button>
                 ) : null}
                 {canEdit && item.status === "exception" && !item.resolved ? (
-                  <Button type="button" variant="outline" size="touch" onClick={() => setResolving(item)}>
+                  <Button type="button" className="min-h-11 shrink-0" onClick={() => setResolving(item)}>
                     Resolve
                   </Button>
                 ) : null}
               </li>
-            ))}
-          </ul>
-          <div className="hidden overflow-x-auto rounded-lg border md:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Asset</TableHead>
-                  <TableHead>Expected</TableHead>
-                  <TableHead>Found</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-[1%]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      <Link href={`/assets/${item.assetId}`} className="font-medium hover:underline">
-                        {item.assetName}
-                      </Link>
-                      <p className="text-xs text-muted-foreground">{item.assetCode}</p>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {item.expectedLocationName ?? "—"}
-                      <p className="text-xs">{formatCondition(item.expectedCondition)}</p>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {item.foundLocationName ?? "—"}
-                      <p className="text-xs">{formatCondition(item.foundCondition)}</p>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={item.status === "exception" ? "destructive" : item.status === "verified" ? "secondary" : "outline"}>
-                        {AUDIT_ITEM_STATUS_LABELS[item.status]}
-                      </Badge>
-                      {item.exceptionTypes.length > 0 ? (
-                        <p className="mt-1 text-xs text-destructive">
-                          {item.exceptionTypes.map(auditExceptionLabel).join(", ")}
-                          {item.resolved ? " · resolved" : ""}
-                        </p>
-                      ) : null}
-                      {item.notes ? <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p> : null}
-                      {item.exceptionPhotoPath ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={mediaSrc(item.exceptionPhotoPath) ?? ""}
-                          alt={`Exception photo for ${item.assetCode}`}
-                          className="mt-2 h-16 w-16 rounded-md border object-cover"
-                        />
-                      ) : null}
-                      {item.resolutionNotes ? (
-                        <p className="mt-1 text-xs text-muted-foreground">Resolution: {item.resolutionNotes}</p>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {canEdit && auditActive && item.status === "unverified" ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="min-h-11"
-                          disabled={isPending}
-                          onClick={() => handleMissing(item.id)}
-                        >
-                          Missing
-                        </Button>
-                      ) : null}
-                      {canEdit && item.status === "exception" && !item.resolved ? (
-                        <Button type="button" variant="outline" className="min-h-11" onClick={() => setResolving(item)}>
-                          Resolve
-                        </Button>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </>
+            );
+          })}
+        </ul>
       )}
 
       <Dialog open={Boolean(missingItem)} onOpenChange={(open) => !open && setMissingItem(null)}>

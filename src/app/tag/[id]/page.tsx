@@ -79,7 +79,7 @@ function ViewerCard({ asset, viewer }: { asset: PublicAsset; viewer: TagPageView
       <VerifyShell
         title="Verify this asset"
         body="You are signed in. Continue on the floor to record this scan."
-        href="/floor/audits"
+        href="/dashboard/administration/audits?status=active"
         label="Walk an audit"
       />
     );
