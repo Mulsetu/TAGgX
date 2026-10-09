@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { notFound } from "next/navigation";
 import { BrandLogo, TagXLogo } from "@/components/layout/brand-logo";
 import { companyShellStyle } from "@/lib/color";
@@ -26,23 +27,25 @@ export default async function ForgotPasswordPage({ params }: ForgotPasswordPageP
   }
 
   return (
-    <main
-      className="flex min-h-svh flex-col items-center justify-center gap-8 px-4"
+    <AuthShell
       style={companyShellStyle(company.primaryColor, company.secondaryColor)}
+      logo={
+        company.logoUrl ? (
+          <BrandLogo
+            src={company.logoUrl}
+            alt={`${company.name} logo`}
+            size={56}
+            fallback={false}
+            className="h-14 w-14 rounded-lg"
+          />
+        ) : (
+          <TagXLogo size={64} className="h-12 w-auto max-w-[12rem]" />
+        )
+      }
+      title={company.name}
+      subtitle="Reset your password"
     >
-      <div className="flex flex-col items-center gap-3">
-        <BrandLogo
-          src={company.logoUrl}
-          alt={`${company.name} logo`}
-          size={56}
-          fallback={false}
-          className="h-14 w-14 rounded-md"
-        />
-        <h1 className="text-xl font-semibold text-[hsl(var(--brand-primary))]">{company.name}</h1>
-        <p className="text-sm text-muted-foreground">Reset your password</p>
-      </div>
       <ForgotPasswordForm slug={company.slug} />
-      <TagXLogo size={96} className="h-12 w-auto max-w-[14rem]" />
-    </main>
+    </AuthShell>
   );
 }

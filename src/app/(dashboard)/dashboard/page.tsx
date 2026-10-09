@@ -3,10 +3,16 @@ import { requireModule } from "@/lib/permissions/features";
 import { requirePermission } from "@/lib/permissions/has-permission";
 import { getInventoryTrendForDashboard, getRecentAssetsForDashboard } from "@/modules/assets/actions";
 import { getDashboardHome } from "@/modules/reports/actions";
+import { dashboardPeriodSchema } from "@/modules/reports/validation";
 import { getVendorScope } from "@/modules/users/actions";
 import { redirect } from "next/navigation";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
+  const period = dashboardPeriodSchema.parse(searchParams.period);
   const vendorId = await getVendorScope();
   if (vendorId) {
     if ((await requireModule("maintenance")) && (await requirePermission("maintenance", "view"))) {
@@ -18,7 +24,7 @@ export default async function DashboardPage() {
   }
 
   const [widgets, recentAssets, trendPercent, canCreate] = await Promise.all([
-    getDashboardHome(),
+    getDashboardHome(period),
     getRecentAssetsForDashboard(),
     getInventoryTrendForDashboard(),
     (async () => (await requireModule("assets")) && (await requirePermission("assets", "create")))(),
@@ -29,6 +35,12 @@ export default async function DashboardPage() {
   }
 
   return (
-    <CompanyHome widgets={widgets} recentAssets={recentAssets} trendPercent={trendPercent} canCreate={canCreate} />
+    <CompanyHome
+      widgets={widgets}
+      recentAssets={recentAssets}
+      trendPercent={trendPercent}
+      canCreate={canCreate}
+      period={period}
+    />
   );
 }

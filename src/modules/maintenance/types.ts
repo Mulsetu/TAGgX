@@ -19,6 +19,12 @@ export type MaintenanceStatus = (typeof MAINTENANCE_STATUSES)[number];
 export const MAINTENANCE_PRIORITIES = ["low", "normal", "high", "emergency"] as const;
 export type MaintenancePriority = (typeof MAINTENANCE_PRIORITIES)[number];
 
+/** `public_qr`: filed from the public /tag/[id] page by someone without a TagX account. */
+export type TicketSource = "staff" | "public_qr";
+
+export const TICKET_VIEWS = ["open", "in_progress", "resolved", "all"] as const;
+export type TicketView = (typeof TICKET_VIEWS)[number];
+
 export interface MaintenanceTicketSummary {
   id: string;
   title: string;
@@ -28,6 +34,8 @@ export interface MaintenanceTicketSummary {
   assetName: string;
   assetCode: string;
   reportedByName: string | null;
+  reporterEmail: string | null;
+  source: TicketSource;
   assignedToId: string | null;
   assignedToName: string | null;
   vendorId: string | null;
@@ -36,6 +44,22 @@ export interface MaintenanceTicketSummary {
   typeKey: string;
   openedAt: string;
   resolvedAt: string | null;
+}
+
+export interface TicketListResult {
+  items: MaintenanceTicketSummary[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  view: TicketView;
+  qrOnly: boolean;
+}
+
+export interface TicketCounts {
+  open: number;
+  inProgress: number;
+  overdue: number;
+  qrOpen: number;
 }
 
 export interface MaintenanceFormState {

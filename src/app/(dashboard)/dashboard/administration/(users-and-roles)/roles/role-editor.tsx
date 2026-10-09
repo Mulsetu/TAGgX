@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Shield } from "lucide-react";
+import { Shield, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,9 +68,11 @@ function moduleEnabled(permissions: PermissionsMap, module: PermissionModule): b
 export function RoleEditor({
   roles: initialRoles,
   userCounts,
+  canDelete,
 }: {
   roles: RoleSummary[];
   userCounts: Record<string, number> | null;
+  canDelete: boolean;
 }) {
   const router = useRouter();
   const [roles, setRoles] = useState(initialRoles);
@@ -93,6 +95,7 @@ export function RoleEditor({
   const draft = selected ? (drafts[selected.id] ?? selected.permissions) : {};
   const dirty = selected ? !samePermissions(draft, selected.permissions) : false;
   const locked = Boolean(selected?.isSystem);
+  const assignedCount = selected && userCounts ? (userCounts[selected.id] ?? 0) : 0;
 
   function updateDraft(next: PermissionsMap) {
     if (!selected || locked) {
@@ -230,10 +233,30 @@ export function RoleEditor({
               >
                 {duplicating ? "Copying..." : "Duplicate"}
               </Button>
-              {locked ? null : (
+              {locked ? (
+                <span className="self-center text-xs text-slate-500">Built-in role · can&apos;t be deleted</span>
+              ) : !canDelete ? null : assignedCount > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled
+                  title={`Move its ${assignedCount} user(s) to another role first`}
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </Button>
+              ) : (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button type="button" variant="outline" size="sm">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      disabled={isDeleting}
+                    >
+                      <Trash2 className="size-4" />
                       Delete
                     </Button>
                   </AlertDialogTrigger>
@@ -241,7 +264,7 @@ export function RoleEditor({
                     <AlertDialogHeader>
                       <AlertDialogTitle>Delete the {selected.name} role?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This can&apos;t be undone. A role stays until nobody is assigned to it.
+                        This can&apos;t be undone. Pending invites for this role are cancelled too.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

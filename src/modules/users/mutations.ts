@@ -219,6 +219,12 @@ export async function updateUserRole(userId: string, roleId: string): Promise<Us
   const { error } = await supabase.rpc("update_user_role", { p_user_id: userId, p_role_id: roleId });
 
   if (error) {
+    if (error.message.includes("company admin role is fixed")) {
+      return { error: "A Company Admin's role can't be changed." };
+    }
+    if (error.message.includes("set_company_admin")) {
+      return { error: "Use \"Make company admin\" to give someone Company Admin access." };
+    }
     return { error: "Could not update this member's role." };
   }
 

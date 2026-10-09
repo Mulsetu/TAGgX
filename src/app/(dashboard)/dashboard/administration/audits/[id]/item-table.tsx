@@ -14,11 +14,13 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { mediaSrc } from "@/lib/media-url";
-import { markMissingAction, resolveAuditItemAction } from "@/modules/audits/actions";
+import { Wrench } from "lucide-react";
+import { markMissingAction } from "@/modules/audits/actions";
 import { AUDIT_ITEM_STATUS_LABELS, auditExceptionLabel } from "@/modules/audits/types";
-import type { AuditFormState, AuditItem } from "@/modules/audits/types";
+import type { AuditItem } from "@/modules/audits/types";
+import type { AssetOption } from "@/modules/assets/types";
+import { IssueDetailDialog } from "./issue-detail-dialog";
 
 const STATUS_VARIANT: Record<AuditItem["status"], "outline" | "secondary" | "destructive"> = {
   unverified: "outline",
@@ -37,15 +39,19 @@ export function AuditItemTable({
   canEdit,
   auditActive,
   requirePhotoOnException,
+  users,
+  canRaiseTicket,
 }: {
   auditId: string;
   items: AuditItem[];
   canEdit: boolean;
   auditActive: boolean;
   requirePhotoOnException: boolean;
+  users: AssetOption[];
+  canRaiseTicket: boolean;
 }) {
   const router = useRouter();
-  const [resolving, setResolving] = useState<AuditItem | null>(null);
+  const [viewing, setViewing] = useState<AuditItem | null>(null);
   const [missingItem, setMissingItem] = useState<AuditItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -83,18 +89,6 @@ export function AuditItemTable({
     });
   }
 
-  function handleResolve(formData: FormData) {
-    startTransition(async () => {
-      const result = await resolveAuditItemAction({ error: null } satisfies AuditFormState, formData);
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
-      setResolving(null);
-      router.refresh();
-    });
-  }
-
   return (
     <div className="flex flex-col gap-3">
       {error ? (
@@ -117,13 +111,20 @@ export function AuditItemTable({
               <li key={item.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex min-w-0 gap-3">
                   {item.exceptionPhotoPath ? (
-                    // Proxied private R2 object — same-company session required.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={mediaSrc(item.exceptionPhotoPath) ?? ""}
-                      alt={`Photo for ${item.assetCode}`}
-                      className="size-14 shrink-0 rounded-md border object-cover"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setViewing(item)}
+                      className="shrink-0 overflow-hidden rounded-md border ring-primary/40 hover:ring-2"
+                      aria-label={`View problem photo for ${item.assetCode}`}
+                    >
+                      {/* Proxied private R2 object — same-company session required. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={mediaSrc(item.exceptionPhotoPath) ?? ""}
+                        alt=""
+                        className="size-14 object-cover"
+                      />
+                    </button>
                   ) : null}
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -133,6 +134,11 @@ export function AuditItemTable({
                       <Badge variant={STATUS_VARIANT[item.status]}>
                         {item.status === "exception" && item.resolved ? "Resolved" : AUDIT_ITEM_STATUS_LABELS[item.status]}
                       </Badge>
+                      {item.maintenanceTicketId ? (
+                        <Badge variant="outline" className="gap-1">
+                          <Wrench className="size-3" /> Ticket raised
+                        </Badge>
+                      ) : null}
                     </div>
                     <p className="text-xs text-slate-500">{item.assetCode}</p>
 
@@ -185,9 +191,14 @@ export function AuditItemTable({
                     Mark missing
                   </Button>
                 ) : null}
-                {canEdit && item.status === "exception" && !item.resolved ? (
-                  <Button type="button" className="min-h-11 shrink-0" onClick={() => setResolving(item)}>
-                    Resolve
+                {item.status === "exception" ? (
+                  <Button
+                    type="button"
+                    variant={canEdit && !item.resolved ? "default" : "outline"}
+                    className="min-h-11 shrink-0"
+                    onClick={() => setViewing(item)}
+                  >
+                    {canEdit && !item.resolved ? "Review problem" : "View details"}
                   </Button>
                 ) : null}
               </li>
@@ -217,28 +228,14 @@ export function AuditItemTable({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(resolving)} onOpenChange={(open) => !open && setResolving(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Resolve {resolving?.assetCode}</DialogTitle>
-          </DialogHeader>
-          {resolving ? (
-            <form action={handleResolve} className="flex flex-col gap-3">
-              <input type="hidden" name="auditId" value={auditId} />
-              <input type="hidden" name="itemId" value={resolving.id} />
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="resolutionNotes">Resolution notes</Label>
-                <Textarea id="resolutionNotes" name="resolutionNotes" required maxLength={2000} rows={3} />
-              </div>
-              <DialogFooter>
-                <Button type="submit" disabled={isPending}>
-                  {isPending ? "Saving..." : "Mark resolved"}
-                </Button>
-              </DialogFooter>
-            </form>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      <IssueDetailDialog
+        auditId={auditId}
+        item={viewing}
+        users={users}
+        canEdit={canEdit}
+        canRaiseTicket={canRaiseTicket}
+        onClose={() => setViewing(null)}
+      />
     </div>
   );
 }

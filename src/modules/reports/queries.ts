@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardWidgetKey } from "@/lib/permissions/workspace-config";
-import type { ImportJobSummary, ReportKey, ReportTable } from "./types";
+import type { ReportKey, ReportTable } from "./types";
 
 interface AssetReportRow {
   id: string;
@@ -191,7 +191,64 @@ export interface DashboardWidgetData {
   charts: Partial<Record<DashboardWidgetKey, { name: string; value: number }[]>>;
 }
 
-export async function getDashboardWidgetData(keys: DashboardWidgetKey[]): Promise<DashboardWidgetData> {
+/** Created-at window for the dashboard period filter; `until` is exclusive. */
+export interface DashboardRange {
+  since: string;
+  until?: string;
+}
+
+/** Stat widgets that count events in a window (assets added / tickets opened). */
+export const PERIOD_STAT_KEYS = [
+  "total_assets",
+  "active_assets",
+  "missing_assets",
+  "unassigned_assets",
+  "assets_under_maintenance",
+] as const satisfies readonly DashboardWidgetKey[];
+
+const PERIOD_CHART_ROW_CAP = 10_000;
+
+type NameRef = { name: string } | { name: string }[] | null;
+
+function refName(value: NameRef, fallback: string): string {
+  const row = Array.isArray(value) ? value[0] : value;
+  return row?.name ?? fallback;
+}
+
+function tally(names: string[]): { name: string; value: number }[] {
+  const counts = new Map<string, number>();
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
+  return Array.from(counts, ([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+}
+
+/**
+ * Charts for assets added inside a window. The all-time charts use the
+ * SQL aggregate RPCs; these group a bounded slice of rows in app code so
+ * the period filter needs no new database function.
+ */
+async function periodCharts(range: DashboardRange, keys: Set<DashboardWidgetKey>) {
+  const supabase = createClient();
+  let query = supabase
+    .from("assets")
+    .select("asset_categories(name), locations(name), asset_statuses(name)")
+    .is("deleted_at", null)
+    .gte("created_at", range.since);
+  if (range.until) query = query.lt("created_at", range.until);
+  const { data } = await query
+    .limit(PERIOD_CHART_ROW_CAP)
+    .returns<{ asset_categories: NameRef; locations: NameRef; asset_statuses: NameRef }[]>();
+  const rows = data ?? [];
+  const charts: DashboardWidgetData["charts"] = {};
+  if (keys.has("by_category")) charts.by_category = tally(rows.map((row) => refName(row.asset_categories, "Uncategorized")));
+  if (keys.has("by_location")) charts.by_location = tally(rows.map((row) => refName(row.locations, "No location")));
+  if (keys.has("by_status")) charts.by_status = tally(rows.map((row) => refName(row.asset_statuses, "No status")));
+  return charts;
+}
+
+export async function getDashboardWidgetData(
+  keys: DashboardWidgetKey[],
+  range?: DashboardRange,
+): Promise<DashboardWidgetData> {
   const needed = new Set(keys);
   if (needed.size === 0) {
     return { values: {}, charts: {} };
@@ -204,6 +261,16 @@ export async function getDashboardWidgetData(keys: DashboardWidgetKey[]): Promis
   const soonDate = soon.toISOString().slice(0, 10);
 
   const count = async (query: PromiseLike<{ count: number | null }>) => (await query).count ?? 0;
+  // Only the PERIOD_STAT_KEYS respect the window; forward-looking widgets
+  // (expiries, due soon) and live-state ones (audits) stay as they are.
+  const assetsQuery = () => {
+    let query = supabase.from("assets").select("id", { count: "exact", head: true }).is("deleted_at", null);
+    if (range) {
+      query = query.gte("created_at", range.since);
+      if (range.until) query = query.lt("created_at", range.until);
+    }
+    return query;
+  };
   const values: DashboardWidgetData["values"] = {};
   const charts: DashboardWidgetData["charts"] = {};
 
@@ -212,60 +279,43 @@ export async function getDashboardWidgetData(keys: DashboardWidgetKey[]): Promis
   if (needed.has("total_assets")) {
     jobs.push(
       (async () => {
-        values.total_assets = await count(
-          supabase.from("assets").select("id", { count: "exact", head: true }).is("deleted_at", null),
-        );
+        values.total_assets = await count(assetsQuery());
       })(),
     );
   }
   if (needed.has("active_assets")) {
     jobs.push(
       (async () => {
-        values.active_assets = await count(
-          supabase
-            .from("assets")
-            .select("id", { count: "exact", head: true })
-            .is("deleted_at", null)
-            .is("archived_at", null),
-        );
+        values.active_assets = await count(assetsQuery().is("archived_at", null));
       })(),
     );
   }
   if (needed.has("missing_assets")) {
     jobs.push(
       (async () => {
-        values.missing_assets = await count(
-          supabase
-            .from("assets")
-            .select("id", { count: "exact", head: true })
-            .is("location_id", null)
-            .is("deleted_at", null),
-        );
+        values.missing_assets = await count(assetsQuery().is("location_id", null));
       })(),
     );
   }
   if (needed.has("unassigned_assets")) {
     jobs.push(
       (async () => {
-        values.unassigned_assets = await count(
-          supabase
-            .from("assets")
-            .select("id", { count: "exact", head: true })
-            .is("allotted_to", null)
-            .is("deleted_at", null),
-        );
+        values.unassigned_assets = await count(assetsQuery().is("allotted_to", null));
       })(),
     );
   }
   if (needed.has("assets_under_maintenance")) {
     jobs.push(
       (async () => {
-        values.assets_under_maintenance = await count(
-          supabase
-            .from("maintenance_tickets")
-            .select("id", { count: "exact", head: true })
-            .in("status", ["open", "in_progress"]),
-        );
+        let tickets = supabase
+          .from("maintenance_tickets")
+          .select("id", { count: "exact", head: true })
+          .in("status", ["open", "in_progress"]);
+        if (range) {
+          tickets = tickets.gte("opened_at", range.since);
+          if (range.until) tickets = tickets.lt("opened_at", range.until);
+        }
+        values.assets_under_maintenance = await count(tickets);
       })(),
     );
   }
@@ -413,6 +463,18 @@ export async function getDashboardWidgetData(keys: DashboardWidgetKey[]): Promis
       })(),
     );
   }
+  const periodChartKeys = new Set(
+    (["by_category", "by_status", "by_location"] as const).filter((key) => needed.has(key)),
+  );
+  if (range && periodChartKeys.size > 0) {
+    jobs.push(
+      (async () => {
+        Object.assign(charts, await periodCharts(range, periodChartKeys));
+      })(),
+    );
+    periodChartKeys.forEach((key) => needed.delete(key));
+  }
+
   if (needed.has("by_category")) {
     jobs.push(
       (async () => {
@@ -463,35 +525,6 @@ export async function getDashboardWidgetData(keys: DashboardWidgetKey[]): Promis
 
   await Promise.all(jobs);
   return { values, charts };
-}
-
-export async function listImportJobs(): Promise<ImportJobSummary[]> {
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("import_jobs")
-    .select("id, status, total_rows, success_count, error_count, error_report, created_at")
-    .order("created_at", { ascending: false })
-    .limit(20)
-    .returns<
-      {
-        id: string;
-        status: string;
-        total_rows: number;
-        success_count: number;
-        error_count: number;
-        error_report: string | null;
-        created_at: string;
-      }[]
-    >();
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    status: row.status,
-    totalRows: row.total_rows,
-    successCount: row.success_count,
-    errorCount: row.error_count,
-    errorReport: row.error_report,
-    createdAt: row.created_at,
-  }));
 }
 
 export async function lookupCatalogs(): Promise<{

@@ -1,9 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Submit button that shows a spinner only while its form's action is
+ * actually running. Driven by useFormStatus, so it resets on its own when
+ * the action finishes — including when sign-in fails and redirects back to
+ * the same page with ?error=…, where a click-set local flag used to stay
+ * stuck on "Signing in..." forever. Disabled while pending, which also
+ * blocks double submits.
+ */
 export function PendingSubmitButton({
   idle,
   pending,
@@ -15,32 +23,11 @@ export function PendingSubmitButton({
   className?: string;
   size?: "default" | "sm" | "lg" | "icon" | "touch";
 }) {
-  const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
+  const { pending: isPending } = useFormStatus();
 
   return (
-    <Button
-      type="submit"
-      className={className}
-      size={size}
-      disabled={busy}
-      aria-busy={busy}
-      onClick={(event) => {
-        if (busyRef.current) {
-          event.preventDefault();
-          return;
-        }
-        const form = event.currentTarget.form;
-        if (form && !form.checkValidity()) {
-          return;
-        }
-        busyRef.current = true;
-        // Disable on the next turn. Disabling inside this click cancels the
-        // form submit, so the sign-in action never runs.
-        window.setTimeout(() => setBusy(true), 0);
-      }}
-    >
-      {busy ? (
+    <Button type="submit" className={className} size={size} disabled={isPending} aria-busy={isPending}>
+      {isPending ? (
         <>
           <Loader2 className="animate-spin" />
           {pending}

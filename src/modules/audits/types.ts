@@ -109,6 +109,8 @@ export interface AuditItem {
   resolved: boolean;
   resolutionNotes: string | null;
   exceptionPhotoPath: string | null;
+  /** Set once "Raise ticket" created a maintenance ticket for this exception. */
+  maintenanceTicketId: string | null;
 }
 
 export interface AuditItemListResult {

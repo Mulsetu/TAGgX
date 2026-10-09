@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft, MapPin } from "lucide-react";
-import { assertModule } from "@/lib/permissions/features";
+import { assertModule, requireModule } from "@/lib/permissions/features";
 import { assertPermission, requirePermission } from "@/lib/permissions/has-permission";
-import { AuditProgressBar, AuditStatTiles } from "@/components/audits/audit-progress";
+import { AuditProgressBar } from "@/components/audits/audit-progress";
+import { StatTiles } from "@/components/layout/stat-tiles";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getAuditDetail, getAuditItemsForDetail, getAuditScanCatalog } from "@/modules/audits/actions";
+import { getAssetFormOptionsForForm } from "@/modules/assets/actions";
 import { AUDIT_STATUS_LABELS } from "@/modules/audits/types";
 import { AuditToolbar } from "./audit-toolbar";
 import { AuditItemTable } from "./item-table";
@@ -48,12 +50,16 @@ export default async function AuditDetailPage({ params, searchParams }: AuditDet
   const exceptionRaw = typeof searchParams.exception === "string" ? searchParams.exception : "";
   const tab = TABS.find((entry) => entry === tabRaw) ?? "all";
 
-  const [items, catalog, canEdit, canDelete] = await Promise.all([
+  const [items, catalog, canEdit, canDelete, maintenanceOn, canCreateTicket, options] = await Promise.all([
     getAuditItemsForDetail(params.id, searchParams),
     getAuditScanCatalog(),
     requirePermission("audits", "edit"),
     requirePermission("audits", "delete"),
+    requireModule("maintenance"),
+    requirePermission("maintenance", "create"),
+    getAssetFormOptionsForForm(),
   ]);
+  const canRaiseTicket = maintenanceOn && canCreateTicket;
 
   const totalPages = Math.max(1, Math.ceil(items.totalCount / items.pageSize));
 
@@ -83,7 +89,7 @@ export default async function AuditDetailPage({ params, searchParams }: AuditDet
 
       <AuditToolbar audit={audit} canEdit={canEdit} canDelete={canDelete} />
 
-      <AuditStatTiles
+      <StatTiles
         stats={[
           { label: "All assets", value: audit.totalItems, tone: "neutral", href: tabHref(audit.id, "all"), active: tab === "all" },
           { label: "OK", value: audit.verifiedCount, tone: "good", href: tabHref(audit.id, "verified"), active: tab === "verified" },
@@ -132,6 +138,8 @@ export default async function AuditDetailPage({ params, searchParams }: AuditDet
           canEdit={canEdit}
           auditActive={audit.status === "active"}
           requirePhotoOnException={audit.requirePhotoOnException}
+          users={options.users}
+          canRaiseTicket={canRaiseTicket}
         />
 
         {totalPages > 1 ? (

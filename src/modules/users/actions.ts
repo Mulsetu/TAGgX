@@ -530,9 +530,19 @@ export async function inviteCompanyUserAction(
   // Confirms the chosen role actually belongs to this company — RLS's
   // roles_tenant_isolation policy means this returns null for any other
   // company's role id, tampered with client-side or not.
-  const { data: role } = await supabase.from("roles").select("id").eq("id", parsed.data.roleId).maybeSingle();
+  const { data: role } = await supabase
+    .from("roles")
+    .select("id, name, is_system")
+    .eq("id", parsed.data.roleId)
+    .maybeSingle<{ id: string; name: string; is_system: boolean }>();
   if (!role) {
     return { error: "Role not found." };
+  }
+  // Accepting an invite on the built-in Company Admin role makes the person
+  // a Company Admin (see createInvitedUser), so only an existing Company
+  // Admin may send one — same rule as setCompanyAdminAction.
+  if (role.is_system && role.name === "Company Admin" && !(await isCurrentUserCompanyAdmin())) {
+    return { error: "Only a Company Admin can invite another Company Admin." };
   }
 
   const {
@@ -587,9 +597,27 @@ export async function updateUserRoleAction(userId: string, roleId: string): Prom
   }
 
   const supabase = createClient();
-  const { data: role } = await supabase.from("roles").select("id").eq("id", roleId).maybeSingle();
+  const { data: role } = await supabase
+    .from("roles")
+    .select("id, name, is_system")
+    .eq("id", roleId)
+    .maybeSingle<{ id: string; name: string; is_system: boolean }>();
   if (!role) {
     return { error: "Role not found." };
+  }
+  // Mirrors update_user_role() (migration 0052): a Company Admin's role is
+  // fixed, and the built-in Company Admin role is only granted through
+  // "Make company admin".
+  if (role.is_system && role.name === "Company Admin") {
+    return { error: "Use \"Make company admin\" to give someone Company Admin access." };
+  }
+  const { data: target } = await supabase
+    .from("users")
+    .select("is_company_admin")
+    .eq("id", userId)
+    .maybeSingle<{ is_company_admin: boolean }>();
+  if (target?.is_company_admin) {
+    return { error: "A Company Admin's role can't be changed." };
   }
 
   const result = await updateUserRole(userId, roleId);

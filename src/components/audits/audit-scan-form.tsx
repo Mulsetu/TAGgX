@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, MapPin, Search, TriangleAlert, X } from "lucide-react";
+import { CheckCircle2, Loader2, MapPin, Search, TriangleAlert, X } from "lucide-react";
 import { QrCameraScanner } from "@/components/audits/qr-camera-scanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,7 +108,7 @@ export function AuditScanForm({
             <h2 className="text-base font-semibold text-slate-900">Scan the next asset</h2>
             <p className="text-sm text-slate-500">Scan the TagX QR sticker, or type the asset code.</p>
           </div>
-          <QrCameraScanner onResult={lookupValue} />
+          <QrCameraScanner onResult={lookupValue} busy={isLookingUp} />
           <form action={handleLookup} className="flex gap-2">
             <Label htmlFor="query" className="sr-only">
               Asset code or tag link
@@ -132,7 +132,7 @@ export function AuditScanForm({
               className="h-11 min-h-11 w-auto px-4"
               aria-label="Find asset"
             >
-              <Search className="size-4" />
+              {isLookingUp ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
               <span className="hidden sm:inline">{isLookingUp ? "Finding..." : "Find"}</span>
             </Button>
           </form>

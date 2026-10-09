@@ -41,7 +41,8 @@ export default function LoginPage({
         }}
       />
       <MarketingHeader />
-      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-12 md:px-6 md:py-16">
+      <main className="flex flex-1 flex-col bg-slate-100 bg-[radial-gradient(ellipse_at_top,rgb(0_80_104/0.08),transparent_60%)]">
+      <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-12 md:px-6 md:py-16">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3F7A22]">
             Workspace sign in
@@ -55,9 +56,10 @@ export default function LoginPage({
             <span className="font-mono">/acme/login</span>.
           </p>
         </div>
-        <div className="rounded-2xl border border-[#005068]/10 bg-white p-6 shadow-sm" style={companyShellStyle(null, null)}>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-lg shadow-slate-900/5 sm:p-8" style={companyShellStyle(null, null)}>
           <WorkspaceLoginForm defaultSlug={defaultSlug} errorCode={searchParams?.error} />
         </div>
+      </div>
       </main>
       <MarketingFooter />
     </div>

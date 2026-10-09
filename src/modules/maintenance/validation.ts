@@ -1,7 +1,13 @@
 import { z } from "zod";
-import { MAINTENANCE_STATUSES } from "./types";
+import { MAINTENANCE_STATUSES, TICKET_VIEWS } from "./types";
 
 const emptyToUndefined = (value: unknown) => (value === "" || value === null ? undefined : value);
+
+export const ticketListQuerySchema = z.object({
+  view: z.enum(TICKET_VIEWS).catch("open"),
+  source: z.enum(["all", "qr"]).catch("all"),
+  page: z.coerce.number().int().min(1).max(10_000).catch(1),
+});
 
 export const createTicketSchema = z.object({
   assetId: z.string().uuid("Choose an asset"),

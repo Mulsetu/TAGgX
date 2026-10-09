@@ -38,25 +38,8 @@ export interface ReportFormState {
   export?: ExportResult;
 }
 
-export interface ImportPreviewRow {
-  line: number;
-  values: Record<string, string>;
-  error?: string;
-}
-
-export interface ImportJobSummary {
-  id: string;
-  status: string;
-  totalRows: number;
-  successCount: number;
-  errorCount: number;
-  createdAt: string;
-  errorReport: string | null;
-}
-
 export interface ImportFormState {
   error: string | null;
-  preview?: ImportPreviewRow[];
   result?: { successCount: number; errorCount: number; errorCsv?: string };
 }
 
@@ -67,6 +50,17 @@ export interface DashboardTile {
   href: string;
 }
 
+export const DASHBOARD_PERIODS = ["all", "7d", "30d", "90d", "365d"] as const;
+export type DashboardPeriod = (typeof DASHBOARD_PERIODS)[number];
+
+export const DASHBOARD_PERIOD_LABELS: Record<DashboardPeriod, string> = {
+  all: "All time",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "90d": "Last 90 days",
+  "365d": "Last 12 months",
+};
+
 export interface DashboardHomeWidget {
   id: string;
   label: string;
@@ -74,5 +68,7 @@ export interface DashboardHomeWidget {
   size: "sm" | "md" | "lg";
   href: string;
   value: number | null;
+  /** Same stat for the previous window of equal length; null for "All time" or non-period stats. */
+  previousValue: number | null;
   chart: { name: string; value: number }[];
 }

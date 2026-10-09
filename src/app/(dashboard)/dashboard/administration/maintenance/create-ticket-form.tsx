@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -26,20 +28,38 @@ export function CreateTicketForm({
   const router = useRouter();
   const [state, setState] = useState<MaintenanceFormState>(initialState);
   const [isPending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
 
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
       const result = await createTicketAction(initialState, formData);
       setState(result);
       if (!result.error) {
+        setOpen(false);
         router.refresh();
       }
     });
   }
 
   return (
-    <form action={handleSubmit} className="flex flex-col gap-3 rounded-lg border p-4">
-      <p className="text-sm font-medium">New ticket</p>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setState(initialState);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button>
+          <Plus className="size-4" />
+          New ticket
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>New maintenance ticket</DialogTitle>
+        </DialogHeader>
+    <form action={handleSubmit} className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="assetId">Asset</Label>
@@ -107,5 +127,7 @@ export function CreateTicketForm({
         {isPending ? "Creating..." : "Create ticket"}
       </Button>
     </form>
+      </DialogContent>
+    </Dialog>
   );
 }
