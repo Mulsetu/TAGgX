@@ -113,6 +113,23 @@ export async function createRazorpaySubscription(input: {
   }
 }
 
+/**
+ * Stops renewal at the end of the paid cycle (Razorpay keeps the customer
+ * active until then and sends subscription.cancelled, which the webhook
+ * turns into status "canceled"). Returns the cycle end as ISO, if known.
+ */
+export async function cancelRazorpaySubscriptionAtCycleEnd(
+  subscriptionId: string,
+): Promise<{ currentEnd: string | null } | { error: string }> {
+  try {
+    const subscription = await getClient().subscriptions.cancel(subscriptionId, true);
+    const end = typeof subscription.current_end === "number" ? subscription.current_end : null;
+    return { currentEnd: end ? new Date(end * 1000).toISOString() : null };
+  } catch (error) {
+    return { error: razorpayMessage(error) };
+  }
+}
+
 export async function createRazorpayOrder(input: {
   amountRupees: number;
   currency: string;

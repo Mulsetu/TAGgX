@@ -44,9 +44,15 @@ export async function acceptCompanyInvite(params: AcceptCompanyInviteParams): Pr
     .eq("company_id", params.companyId)
     .eq("is_company_admin", true);
 
-  const isCompanyAdmin =
-    (role?.is_system === true && (role.name === "Company Admin" || role.name === "Admin")) ||
-    (adminCount ?? 0) === 0;
+  // One Company Admin per company (migration 0054): only the first member
+  // of a brand-new company becomes admin. Later admins come from a transfer.
+  const isCompanyAdmin = (adminCount ?? 0) === 0;
+  // An old invite on the built-in Company Admin role must not hand out its
+  // full permissions once the company already has its admin.
+  if (!isCompanyAdmin && role?.is_system && (role.name === "Company Admin" || role.name === "Admin")) {
+    await supabase.auth.admin.deleteUser(authData.user.id);
+    return { error: "This Company Admin invite is no longer valid. Ask your admin for a new invite." };
+  }
 
   const { error: profileError } = await supabase.from("users").insert({
     id: authData.user.id,
@@ -223,7 +229,7 @@ export async function updateUserRole(userId: string, roleId: string): Promise<Us
       return { error: "A Company Admin's role can't be changed." };
     }
     if (error.message.includes("set_company_admin")) {
-      return { error: "Use \"Make company admin\" to give someone Company Admin access." };
+      return { error: "Use \"Transfer Company Admin\" to make someone the Company Admin." };
     }
     return { error: "Could not update this member's role." };
   }
@@ -231,14 +237,25 @@ export async function updateUserRole(userId: string, roleId: string): Promise<Us
   return { error: null };
 }
 
-export async function setUserCompanyAdmin(userId: string, isCompanyAdmin: boolean): Promise<UserMutationResult> {
+/**
+ * Hands Company Admin to another member via transfer_company_admin()
+ * (migration 0054): one admin per company, so the current admin is moved
+ * to `previousRoleId` in the same transaction.
+ */
+export async function transferCompanyAdmin(newAdminId: string, previousRoleId: string): Promise<UserMutationResult> {
   const supabase = createClient();
-  const { error } = await supabase.rpc("set_company_admin", {
-    p_user_id: userId,
-    p_is_company_admin: isCompanyAdmin,
+  const { error } = await supabase.rpc("transfer_company_admin", {
+    p_new_admin: newAdminId,
+    p_previous_role: previousRoleId,
   });
   if (error) {
-    return { error: "Could not update company admin access." };
+    if (error.message.includes("already company admin")) {
+      return { error: "This person is already the Company Admin." };
+    }
+    if (error.message.includes("normal role")) {
+      return { error: "Choose a normal role for yourself after the transfer." };
+    }
+    return { error: "Could not transfer Company Admin." };
   }
   return { error: null };
 }

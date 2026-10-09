@@ -74,6 +74,30 @@ export interface CompanySubscription {
   paymentConfirmToken: string | null;
 }
 
+/** What the company admin's Billing page needs beyond the asset quota. */
+export interface BillingOverview {
+  subscription: {
+    status: SubscriptionStatus;
+    subscriptionType: SubscriptionType;
+    billingCycle: BillingCycle;
+    startsAt: string;
+    /** End of the current paid period (stored end date, or the next renewal date). */
+    periodEnd: string | null;
+    trialEndsAt: string | null;
+    autoRenew: boolean;
+    /** Billed through Razorpay (card/UPI) rather than offline invoices. */
+    onlineBilling: boolean;
+  } | null;
+  plans: BillingPlan[];
+  billingContact: { companyName: string; email: string | null; phone: string | null; address: string | null };
+  isCompanyAdmin: boolean;
+}
+
+export interface BillingActionState {
+  error: string | null;
+  success?: string;
+}
+
 export interface CompanyAssetQuota {
   plan: BillingPlan | null;
   extraAssets: number;

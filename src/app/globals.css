@@ -168,3 +168,19 @@ body {
   padding-top: 0.85rem;
   padding-bottom: 0.85rem;
 }
+
+/* Invoice pages print as a clean document: hide the app chrome around them. */
+@media print {
+  body:has(.invoice-sheet) [data-sidebar="sidebar"],
+  body:has(.invoice-sheet) [data-sidebar="rail"],
+  body:has(.invoice-sheet) header,
+  body:has(.invoice-sheet) .print\:hidden {
+    display: none !important;
+  }
+  body:has(.invoice-sheet) .company-page {
+    padding: 0 !important;
+  }
+  body:has(.invoice-sheet) {
+    background: #fff !important;
+  }
+}

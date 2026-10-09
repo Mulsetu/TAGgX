@@ -2,7 +2,7 @@ import "server-only";
 import { EMAIL_EVENT_MODULES } from "@/lib/permissions/feature-catalog";
 import { resolveEnabledModulesForCompany } from "@/lib/permissions/features";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendTemplatedEmail } from "@/lib/email";
+import { SIMULATED_EMAIL_NOTE, sendTemplatedEmail } from "@/lib/email";
 import { getCompanyByIdAdmin } from "@/modules/companies/queries";
 import { mediaSrc } from "@/lib/media-url";
 import { getCompanyAdminEmails } from "./queries";
@@ -171,8 +171,9 @@ export async function dispatchEventEmail(params: {
     await supabase
       .from("notification_logs")
       .update({
-        status: "error" in result ? "failed" : "sent",
-        error: "error" in result ? result.error : null,
+        status: "error" in result ? "failed" : result.simulated ? "skipped" : "sent",
+        error: "error" in result ? result.error : result.simulated ? SIMULATED_EMAIL_NOTE : null,
+        sent_at: new Date().toISOString(),
       })
       .eq("company_id", params.companyId)
       .eq("event_key", params.eventKey)
@@ -287,12 +288,12 @@ export async function retryFailedNotificationEmails(): Promise<{ retried: number
     await supabase
       .from("notification_logs")
       .update({
-        status: "sent",
-        error: null,
+        status: result.simulated ? "skipped" : "sent",
+        error: result.simulated ? SIMULATED_EMAIL_NOTE : null,
         sent_at: new Date().toISOString(),
       })
       .eq("id", row.id);
-    sent += 1;
+    if (!result.simulated) sent += 1;
   }
 
   return { retried, sent };

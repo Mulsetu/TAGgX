@@ -7,7 +7,10 @@ import { TENANT_HEADERS, TENANT_SLUG_COOKIE } from "@/lib/tenant";
 import { writeAuditLog } from "@/lib/audit-log";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
-import { requirePermission } from "@/lib/permissions/has-permission";
+import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
+import { cancelRazorpaySubscriptionAtCycleEnd } from "@/lib/razorpay";
+import { sendPlanChangeRequestEmail } from "@/lib/email";
+import { getSiteUrl } from "@/lib/site";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -26,11 +29,12 @@ import { uploadFileToR2 } from "@/modules/storage/mutations";
 import { parsePlanModules } from "@/lib/permissions/feature-catalog";
 import {
   assignPlanSchema,
+  createWorkspaceSchema,
   extraAssetOrderSchema,
   grantExtraAssetsSchema,
+  planChangeRequestSchema,
   planFormSchema,
   razorpayPaymentResultSchema,
-  createWorkspaceSchema,
   recordPaymentSchema,
   subscriptionStatusSchema,
 } from "./validation";
@@ -48,13 +52,13 @@ import {
   listRecentPayments,
 } from "./queries";
 import {
+  applyPlanLimitsToCompany,
   cancelBillingOrder,
   deletePlan,
   fulfillBillingOrder,
   incrementExtraAssets,
   insertBillingPayment,
   insertExtraAssetOrder,
-  applyPlanLimitsToCompany,
   insertPlan,
   markBillingOrderPaid,
   setSubscriptionPeriod,
@@ -72,7 +76,10 @@ import {
 } from "./payments";
 import type {
   AssignPlanState,
+  BillingActionState,
   BillingOrder,
+  BillingOverview,
+  CompanySubscription,
   BillingPayment,
   BillingPlan,
   CompanyAssetQuota,
@@ -1021,3 +1028,238 @@ export async function handleRazorpayWebhookAction(
   return result;
 }
 
+/**
+ * End of the period the company has paid for: the stored end date, or —
+ * for open-ended monthly/yearly subscriptions — the next renewal date
+ * counted from the start.
+ */
+function currentPeriodEnd(subscription: CompanySubscription): string | null {
+  if (subscription.status === "trial" && subscription.trialEndsAt) {
+    return subscription.trialEndsAt;
+  }
+  if (subscription.endsAt) {
+    return subscription.endsAt;
+  }
+  if (subscription.billingCycle === "custom") {
+    return null;
+  }
+  const start = new Date(subscription.startsAt);
+  if (Number.isNaN(start.getTime())) {
+    return null;
+  }
+  const months = subscription.billingCycle === "yearly" ? 12 : 1;
+  const next = new Date(start);
+  const now = Date.now();
+  while (next.getTime() <= now) {
+    next.setUTCMonth(next.getUTCMonth() + months);
+  }
+  return next.toISOString();
+}
+
+export async function getBillingOverview(): Promise<BillingOverview> {
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  const empty: BillingOverview = {
+    subscription: null,
+    plans: [],
+    billingContact: { companyName: "", email: null, phone: null, address: null },
+    isCompanyAdmin: false,
+  };
+  if (!companyId || !(await requirePermission("settings", "view"))) {
+    return empty;
+  }
+
+  const [subscription, plans, company, isCompanyAdmin] = await Promise.all([
+    getSubscriptionForCompany(companyId),
+    listActivePlans(),
+    getCompanyById(companyId),
+    isCurrentUserCompanyAdmin(),
+  ]);
+
+  return {
+    subscription: subscription
+      ? {
+          status: subscription.status,
+          subscriptionType: subscription.subscriptionType,
+          billingCycle: subscription.billingCycle,
+          startsAt: subscription.startsAt,
+          periodEnd: currentPeriodEnd(subscription),
+          trialEndsAt: subscription.trialEndsAt,
+          autoRenew: subscription.autoRenew,
+          onlineBilling: Boolean(subscription.razorpaySubscriptionId),
+        }
+      : null,
+    plans,
+    billingContact: {
+      companyName: company?.name ?? "",
+      email: company?.contactEmail ?? null,
+      phone: company?.contactPhone ?? null,
+      address: company?.contactAddress ?? null,
+    },
+    isCompanyAdmin,
+  };
+}
+
+/**
+ * Cancel at period end: access stays until the paid period ends, then the
+ * workspace turns read-only (tenant-access treats a non-renewing plan past
+ * its end as expired; Razorpay subscriptions also get subscription.cancelled).
+ */
+export async function cancelSubscriptionAction(): Promise<BillingActionState> {
+  if (!(await isCurrentUserCompanyAdmin())) {
+    return { error: "Only the Company Admin can cancel the plan." };
+  }
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  if (!companyId) {
+    return { error: "Could not determine your company." };
+  }
+  if (!consumeRateLimit(`billing-cancel:${companyId}`, 5, 60 * 60 * 1000)) {
+    return { error: "Too many requests. Try again later." };
+  }
+
+  const subscription = await getSubscriptionForCompany(companyId);
+  if (!subscription) {
+    return { error: "There is no plan to cancel." };
+  }
+  if (!subscription.autoRenew) {
+    return { error: "This plan is already set to end." };
+  }
+
+  let periodEnd = currentPeriodEnd(subscription);
+  if (subscription.razorpaySubscriptionId) {
+    const cancelled = await cancelRazorpaySubscriptionAtCycleEnd(subscription.razorpaySubscriptionId);
+    if ("error" in cancelled) {
+      return { error: `Could not cancel with the payment provider: ${cancelled.error}` };
+    }
+    periodEnd = cancelled.currentEnd ?? periodEnd;
+  }
+
+  const saved = await setSubscriptionPeriod(companyId, { autoRenew: false, endsAt: periodEnd });
+  if ("error" in saved) {
+    return { error: saved.error };
+  }
+
+  await writeAuditLog({
+    action: "subscription.cancel_scheduled",
+    entityType: "company_subscription",
+    entityId: subscription.id,
+    newValues: { endsAt: periodEnd },
+  });
+  revalidatePath("/dashboard/administration/settings/billing");
+  return { error: null, success: "Your plan will end at the end of this billing period." };
+}
+
+/** Undo a scheduled cancellation — offline-billed plans only (Razorpay can't revive a cancelled subscription). */
+export async function resumeSubscriptionAction(): Promise<BillingActionState> {
+  if (!(await isCurrentUserCompanyAdmin())) {
+    return { error: "Only the Company Admin can change this." };
+  }
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  if (!companyId) {
+    return { error: "Could not determine your company." };
+  }
+  const subscription = await getSubscriptionForCompany(companyId);
+  if (!subscription || subscription.autoRenew) {
+    return { error: "Nothing to resume." };
+  }
+  if (subscription.razorpaySubscriptionId) {
+    return { error: "Online subscriptions can't be resumed once cancelled. Contact TagX to restart billing." };
+  }
+  const saved = await setSubscriptionPeriod(companyId, { autoRenew: true });
+  if ("error" in saved) {
+    return { error: saved.error };
+  }
+  await writeAuditLog({ action: "subscription.resumed", entityType: "company_subscription", entityId: subscription.id });
+  revalidatePath("/dashboard/administration/settings/billing");
+  return { error: null, success: "Your plan will keep renewing." };
+}
+
+/** Plan changes go through the TagX team (sales-assisted), not instant self-serve checkout. */
+export async function requestPlanChangeAction(_prev: BillingActionState, formData: FormData): Promise<BillingActionState> {
+  if (!(await isCurrentUserCompanyAdmin())) {
+    return { error: "Only the Company Admin can change the plan." };
+  }
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  if (!companyId) {
+    return { error: "Could not determine your company." };
+  }
+  if (!consumeRateLimit(`plan-change:${companyId}`, 5, 24 * 60 * 60 * 1000)) {
+    return { error: "You've already sent several requests today. TagX will be in touch." };
+  }
+  const parsed = planChangeRequestSchema.safeParse({ planId: formData.get("planId"), note: formData.get("note") });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const [requested, subscription, company] = await Promise.all([
+    getPlanById(parsed.data.planId),
+    getSubscriptionForCompany(companyId),
+    getCompanyById(companyId),
+  ]);
+  if (!requested || !requested.isActive || !company) {
+    return { error: "That plan isn't available." };
+  }
+  if (subscription?.planId === requested.id) {
+    return { error: "You're already on this plan." };
+  }
+  const current = subscription ? await getPlanById(subscription.planId) : null;
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const sent = await sendPlanChangeRequestEmail({
+    companyName: company.name,
+    companySlug: company.slug,
+    requestedByEmail: user?.email ?? "unknown",
+    currentPlan: current?.name ?? null,
+    requestedPlan: requested.name,
+    note: parsed.data.note ?? null,
+    adminUrl: `${getSiteUrl()}/admin`,
+  });
+  if ("error" in sent) {
+    return { error: "Could not send the request. Try again or contact TagX." };
+  }
+
+  await writeAuditLog({
+    action: "plan.change_requested",
+    entityType: "company_subscription",
+    entityId: subscription?.id,
+    newValues: { requestedPlanId: requested.id, note: parsed.data.note ?? null },
+  });
+  return { error: null, success: `Request sent. The TagX team will contact you to move you to ${requested.name}.` };
+}
+
+/** One payment of the caller's own company, for its invoice page. */
+export async function getInvoiceForCurrentCompany(paymentId: string): Promise<{
+  payment: BillingPayment;
+  plan: BillingPlan | null;
+  billingContact: BillingOverview["billingContact"];
+  companySlug: string;
+} | null> {
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  if (!companyId || !(await requirePermission("settings", "view"))) {
+    return null;
+  }
+  const [payments, company, subscription] = await Promise.all([
+    listPaymentsForCompany(companyId),
+    getCompanyById(companyId),
+    getSubscriptionForCompany(companyId),
+  ]);
+  const payment = payments.find((row) => row.id === paymentId);
+  if (!payment || !company) {
+    return null;
+  }
+  const plan = subscription ? await getPlanById(subscription.planId) : null;
+  return {
+    payment,
+    plan,
+    companySlug: company.slug,
+    billingContact: {
+      companyName: company.name,
+      email: company.contactEmail,
+      phone: company.contactPhone,
+      address: company.contactAddress,
+    },
+  };
+}

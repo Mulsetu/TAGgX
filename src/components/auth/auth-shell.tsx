@@ -49,7 +49,7 @@ export function AuthShell({
             alt="TagX by Mulsetu"
             width={TAGX_LOGO_TRANSPARENT_WIDTH}
             height={TAGX_LOGO_TRANSPARENT_HEIGHT}
-            className="h-12 w-auto sm:h-14"
+            className="h-10 w-auto sm:h-12"
           />
         </div>
       ) : null}

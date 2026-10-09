@@ -19,6 +19,11 @@ export const resetPasswordSchema = z
     path: ["confirmPassword"],
   });
 
+export const transferCompanyAdminSchema = z.object({
+  newAdminId: z.string().uuid(),
+  previousRoleId: z.string().uuid("Choose your new role"),
+});
+
 export const inviteUserSchema = z.object({
   email: z.string().trim().email("Enter a valid email"),
   roleId: z.string().uuid("Choose a role"),
