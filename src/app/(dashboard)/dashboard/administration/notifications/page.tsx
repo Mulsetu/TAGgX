@@ -1,6 +1,7 @@
 import { assertModule } from "@/lib/permissions/features";
-import { assertPermission } from "@/lib/permissions/has-permission";
+import { assertPermission, requirePermission } from "@/lib/permissions/has-permission";
 import {
+  getEmailDeliveryStatus,
   getEmailTemplatesForAdmin,
   getNotificationLogsForAdmin,
   getNotificationRulesForAdmin,
@@ -11,18 +12,23 @@ import { NotificationsAdmin } from "./notifications-admin";
 export default async function NotificationsPage() {
   await assertModule("email");
   await assertPermission("notifications", "view");
-  const [templates, rules, logs] = await Promise.all([
+  const [templates, rules, logs, delivery, canEdit] = await Promise.all([
     getEmailTemplatesForAdmin(),
     getNotificationRulesForAdmin(),
     getNotificationLogsForAdmin(),
+    getEmailDeliveryStatus(),
+    requirePermission("notifications", "edit"),
   ]);
 
   return (
     <SettingsFrame>
-      <p className="text-sm text-slate-500">
-        Edit reminder templates, turn rules on or off, and send a test email. Scheduled sends run via cron and are recorded in the log.
-      </p>
-      <NotificationsAdmin templates={templates} rules={rules} logs={logs} />
+      <NotificationsAdmin
+        templates={templates}
+        rules={rules}
+        logs={logs}
+        deliveryLive={delivery.live}
+        canEdit={canEdit}
+      />
     </SettingsFrame>
   );
 }

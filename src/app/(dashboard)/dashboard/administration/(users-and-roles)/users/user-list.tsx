@@ -7,7 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
-import { setCompanyAdminAction, toggleUserActiveAction, updateUserRoleAction } from "@/modules/users/actions";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { toggleUserActiveAction, transferCompanyAdminAction, updateUserRoleAction } from "@/modules/users/actions";
 import type { CompanyUserSummary } from "@/modules/users/types";
 import type { RoleSummary } from "@/modules/roles/types";
 
@@ -44,6 +53,11 @@ function UserCard({
   const [isRolePending, startRole] = useTransition();
   const [isActivePending, startActive] = useTransition();
   const [isAdminPending, startAdmin] = useTransition();
+  const [transferOpen, setTransferOpen] = useState(false);
+  const normalRoles = roles.filter((role) => !role.isSystem);
+  const [myNewRole, setMyNewRole] = useState(
+    normalRoles.find((role) => role.name === "Manager")?.id ?? normalRoles[0]?.id ?? "",
+  );
   const added = formatAdded(user.createdAt);
 
   function handleRoleChange(roleId: string) {
@@ -70,14 +84,15 @@ function UserCard({
     });
   }
 
-  function handleGrantAdmin() {
+  function handleTransfer() {
     setError(null);
     startAdmin(async () => {
-      const result = await setCompanyAdminAction(user.id, true);
+      const result = await transferCompanyAdminAction(user.id, myNewRole);
       if (result.error) {
         setError(result.error);
         return;
       }
+      setTransferOpen(false);
       router.refresh();
     });
   }
@@ -132,14 +147,49 @@ function UserCard({
               {isActivePending ? "Saving..." : user.isActive ? "Deactivate" : "Reactivate"}
             </Button>
           )}
-          {canManageCompanyAdmins && !user.isCompanyAdmin ? (
-            <Button type="button" variant="outline" size="sm" disabled={isAdminPending} onClick={handleGrantAdmin}>
-              {isAdminPending ? "Saving..." : "Make company admin"}
+          {canManageCompanyAdmins && !user.isCompanyAdmin && user.isActive ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => setTransferOpen(true)}>
+              Transfer Company Admin
             </Button>
           ) : null}
         </div>
       </div>
       {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
+
+      <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Make {user.fullName ?? user.email} the Company Admin?</DialogTitle>
+            <DialogDescription>
+              A workspace has only one Company Admin. After this, they get full control and you lose
+              Company Admin access — you&apos;ll keep only the role you pick below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`my-role-${user.id}`}>Your role after the transfer</Label>
+            <NativeSelect
+              id={`my-role-${user.id}`}
+              value={myNewRole}
+              onChange={(event) => setMyNewRole(event.target.value)}
+            >
+              {normalRoles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setTransferOpen(false)} disabled={isAdminPending}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={handleTransfer} disabled={isAdminPending || !myNewRole}>
+              {isAdminPending ? "Transferring..." : "Transfer Company Admin"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </article>
   );
 }

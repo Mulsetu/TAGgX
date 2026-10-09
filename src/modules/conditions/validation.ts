@@ -20,3 +20,12 @@ export const conditionFormSchema = z.object({
 });
 
 export type ConditionFormInput = z.infer<typeof conditionFormSchema>;
+
+/** New order for a settings list — every id once, top to bottom. */
+export const reorderSchema = z.array(z.string().uuid()).min(1).max(200);
+
+/** Optional destination for assets still using the item being deleted. */
+export const replacementSchema = z.preprocess(
+  (value) => (value === "" || value === null || value === undefined ? undefined : value),
+  z.string().uuid().optional(),
+);

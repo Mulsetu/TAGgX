@@ -1,4 +1,9 @@
 import { z } from "zod";
+
+export const planChangeRequestSchema = z.object({
+  planId: z.string().uuid("Choose a plan"),
+  note: z.preprocess((value) => (value === "" || value === null ? undefined : value), z.string().trim().max(1000).optional()),
+});
 import { slugSchema } from "@/modules/companies/validation";
 
 export const planFormSchema = z.object({

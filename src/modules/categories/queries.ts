@@ -194,3 +194,19 @@ export async function listRequiredDocumentsByCategory(): Promise<Map<string, str
   }
   return map;
 }
+
+/** Live (not recycle-bin) assets per category. */
+export async function countAssetsPerCategory(categoryIds: string[]): Promise<Record<string, number>> {
+  const supabase = createClient();
+  const counts = await Promise.all(
+    categoryIds.map(async (id) => {
+      const { count } = await supabase
+        .from("assets")
+        .select("id", { count: "exact", head: true })
+        .eq("category_id", id)
+        .is("deleted_at", null);
+      return [id, count ?? 0] as const;
+    }),
+  );
+  return Object.fromEntries(counts);
+}

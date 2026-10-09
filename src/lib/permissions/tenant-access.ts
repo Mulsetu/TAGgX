@@ -45,7 +45,14 @@ export async function getTenantAccessState(): Promise<TenantAccessState> {
     getSubscriptionForCompany(companyId),
   ]);
 
-  const subscriptionStatus = subscription?.status ?? "none";
+  // A plan cancelled from Billing keeps renewing off (auto_renew=false)
+  // and stays usable until its end date; after that it reads as expired.
+  const lapsed =
+    subscription !== null &&
+    !subscription.autoRenew &&
+    subscription.endsAt !== null &&
+    new Date(subscription.endsAt).getTime() < Date.now();
+  const subscriptionStatus = lapsed ? "expired" : (subscription?.status ?? "none");
   const billingBlocked =
     subscriptionStatus !== "none" &&
     (READ_ONLY_STATUSES as readonly string[]).includes(subscriptionStatus);

@@ -8,7 +8,12 @@ import { getSiteUrl } from "@/lib/site";
 
 const BREVO_API_URL = "https://api.brevo.com/v3/smtp/email";
 
-export type SendEmailResult = { messageId: string } | { error: string };
+/** `simulated`: development mode — nothing was sent, the email was only logged. */
+export type SendEmailResult = { messageId: string; simulated?: boolean } | { error: string };
+
+/** Shown wherever a simulated send is reported, so "sent" never means "only logged". */
+export const SIMULATED_EMAIL_NOTE =
+  "Not delivered: this server is in development mode, so emails are only logged. Set SEND_REAL_EMAILS_IN_DEV=true to send real emails.";
 
 interface EmailRecipient {
   email: string;
@@ -32,13 +37,18 @@ function shouldSendReal(): boolean {
   return process.env.NODE_ENV === "production" || process.env.SEND_REAL_EMAILS_IN_DEV === "true";
 }
 
+/** True when emails really go out through Brevo (production, or opted in for dev). */
+export function isEmailDeliveryLive(): boolean {
+  return shouldSendReal();
+}
+
 async function sendTransactionalEmail(params: SendTransactionalEmailParams): Promise<SendEmailResult> {
   if (!shouldSendReal()) {
     // eslint-disable-next-line no-console
     console.log(
       `[dev email] to=${params.to.map((r) => r.email).join(",")} subject="${params.subject}"\n${params.textContent}`,
     );
-    return { messageId: `dev-${Date.now()}` };
+    return { messageId: `dev-${Date.now()}`, simulated: true };
   }
 
   const apiKey = process.env.BREVO_API_KEY;
@@ -340,6 +350,40 @@ export async function sendWorkspaceDeletionRequestEmail(
     subject: `TagX: deletion requested — ${params.companyName}`,
     htmlContent: html,
     textContent: `${params.companyName} (/${params.companySlug}) requested deletion, by ${params.requestedByEmail}. Review: ${params.adminUrl}`,
+  });
+}
+
+export interface PlanChangeRequestParams {
+  companyName: string;
+  companySlug: string;
+  requestedByEmail: string;
+  currentPlan: string | null;
+  requestedPlan: string;
+  note: string | null;
+  adminUrl: string;
+}
+
+/** Upgrade/downgrade request from a Company Admin — handled by the TagX team. */
+export async function sendPlanChangeRequestEmail(params: PlanChangeRequestParams): Promise<SendEmailResult> {
+  const to = process.env.CRM_NOTIFY_EMAIL?.trim() || process.env.BREVO_FROM_EMAIL?.trim();
+  if (!to) {
+    return { error: "No notification inbox is configured." };
+  }
+
+  const html = renderLayout(
+    `Plan change requested: ${escapeHtml(params.companyName)}`,
+    `<p><strong>${escapeHtml(params.companyName)}</strong> (/${escapeHtml(params.companySlug)}) wants to change plan.</p>
+     <p>Current plan: ${escapeHtml(params.currentPlan ?? "none")}<br/>Requested plan: <strong>${escapeHtml(params.requestedPlan)}</strong></p>
+     <p>Requested by: ${escapeHtml(params.requestedByEmail)}</p>
+     ${params.note ? `<p>Note: ${escapeHtml(params.note)}</p>` : ""}
+     <p>Assign the plan from <a href="${params.adminUrl}">the admin companies list</a>.</p>`,
+  );
+
+  return sendTransactionalEmail({
+    to: [{ email: to }],
+    subject: `TagX: plan change requested — ${params.companyName}`,
+    htmlContent: html,
+    textContent: `${params.companyName} (/${params.companySlug}) requested ${params.requestedPlan} (current: ${params.currentPlan ?? "none"}), by ${params.requestedByEmail}. ${params.note ?? ""} ${params.adminUrl}`,
   });
 }
 

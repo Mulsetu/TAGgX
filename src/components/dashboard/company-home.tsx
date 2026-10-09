@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { StatusBadge } from "@/components/assets/status-badge";
 import {
   AlertCircle,
   Box,
@@ -63,15 +64,6 @@ function Trend({ current, previous, against }: { current: number; previous: numb
       <span className="font-normal text-slate-400">vs {against}</span>
     </p>
   );
-}
-
-function statusClass(name: string): string {
-  const value = name.toLowerCase();
-  if (value.includes("active")) return "bg-emerald-50 text-emerald-700";
-  if (value.includes("missing")) return "bg-sky-50 text-sky-700";
-  if (value.includes("maint")) return "bg-violet-50 text-violet-700";
-  if (value.includes("unassign")) return "bg-amber-50 text-amber-700";
-  return "bg-slate-100 text-slate-600";
 }
 
 function formatUpdated(value: string): string {
@@ -264,10 +256,7 @@ export function CompanyHome({
                         {asset.locationName ? ` · ${asset.locationName}` : ""}
                       </span>
                     </span>
-                    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(asset.statusName)}`}>
-                      <span className="size-1.5 rounded-full bg-current" />
-                      {asset.statusName}
-                    </span>
+                    <StatusBadge name={asset.statusName} color={asset.statusColor} className="shrink-0" />
                   </Link>
                 </li>
               );
@@ -315,10 +304,7 @@ export function CompanyHome({
                       </td>
                       <td className="px-3 py-3 text-slate-600">{asset.locationName ?? "—"}</td>
                       <td className="px-3 py-3">
-                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${statusClass(asset.statusName)}`}>
-                          <span className="size-1.5 rounded-full bg-current" />
-                          {asset.statusName}
-                        </span>
+                        <StatusBadge name={asset.statusName} color={asset.statusColor} />
                       </td>
                       <td className="px-3 py-3 text-slate-600">{asset.allottedToName ?? "Unassigned"}</td>
                       <td className="px-3 py-3 text-slate-500">{formatUpdated(asset.updatedAt)}</td>

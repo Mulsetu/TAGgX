@@ -4,7 +4,7 @@ import "server-only";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { TENANT_HEADERS } from "@/lib/tenant";
-import { sendMaintenanceReminderEmail, sendStorageWarningEmail, sendTemplatedEmail } from "@/lib/email";
+import { SIMULATED_EMAIL_NOTE, isEmailDeliveryLive, sendMaintenanceReminderEmail, sendStorageWarningEmail, sendTemplatedEmail } from "@/lib/email";
 import { requirePermission } from "@/lib/permissions/has-permission";
 import { requireModule } from "@/lib/permissions/features";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
@@ -182,6 +182,14 @@ export async function getNotificationRulesForAdmin(): Promise<NotificationRuleSu
   return listNotificationRules();
 }
 
+/** Whether this server actually delivers email — shown on the Notifications page. */
+export async function getEmailDeliveryStatus(): Promise<{ live: boolean }> {
+  if (!(await requireModule("email")) || !(await requirePermission("notifications", "view"))) {
+    return { live: false };
+  }
+  return { live: isEmailDeliveryLive() };
+}
+
 export async function getNotificationLogsForAdmin(): Promise<NotificationLogSummary[]> {
   if (!(await requireModule("email")) || !(await requirePermission("notifications", "view"))) {
     return [];
@@ -288,5 +296,8 @@ export async function sendTestEmailAction(_prev: EmailFormState, formData: FormD
   if ("error" in result) {
     return { error: result.error };
   }
-  return { error: null, success: `Test email sent to ${to}.` };
+  if (result.simulated) {
+    return { error: SIMULATED_EMAIL_NOTE };
+  }
+  return { error: null, success: `Test email sent to ${to}. Check the inbox (and spam folder).` };
 }

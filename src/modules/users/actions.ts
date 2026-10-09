@@ -25,13 +25,14 @@ import {
   inviteUserSchema,
   resetPasswordSchema,
   signInSchema,
+  transferCompanyAdminSchema,
 } from "./validation";
 import { getInviteByToken, getUserWithRole, listCompanyUsers, listPendingInvites } from "./queries";
 import {
   acceptCompanyInvite,
   insertOnboardingUser,
   setUserActive,
-  setUserCompanyAdmin,
+  transferCompanyAdmin,
   updateUserRole,
 } from "./mutations";
 import type {
@@ -538,11 +539,10 @@ export async function inviteCompanyUserAction(
   if (!role) {
     return { error: "Role not found." };
   }
-  // Accepting an invite on the built-in Company Admin role makes the person
-  // a Company Admin (see createInvitedUser), so only an existing Company
-  // Admin may send one — same rule as setCompanyAdminAction.
-  if (role.is_system && role.name === "Company Admin" && !(await isCurrentUserCompanyAdmin())) {
-    return { error: "Only a Company Admin can invite another Company Admin." };
+  // One Company Admin per company (migration 0054): invite with a normal
+  // role, then use "Transfer Company Admin" once they've joined.
+  if (role.is_system && role.name === "Company Admin") {
+    return { error: "There can only be one Company Admin. Invite them with another role, then transfer Company Admin to them." };
   }
 
   const {
@@ -672,28 +672,43 @@ export async function toggleUserActiveAction(userId: string, isActive: boolean):
   return result;
 }
 
-export async function setCompanyAdminAction(userId: string, isCompanyAdmin: boolean): Promise<UserActionState> {
+/**
+ * One Company Admin per company: this hands the role to `newAdminId` and
+ * moves the current admin to `previousRoleId`. Only the current Company
+ * Admin (or a super admin) can do it — re-checked in the database.
+ */
+export async function transferCompanyAdminAction(
+  newAdminId: string,
+  previousRoleId: string,
+): Promise<UserActionState> {
   if (!(await requireWritableTenant())) {
     return { error: TENANT_READ_ONLY_MESSAGE };
   }
 
   const adminChangeKey = `company-admin-change:${clientIpFromHeaders(headers())}`;
-  if (!consumeRateLimit(adminChangeKey, 30, 60 * 60 * 1000)) {
+  if (!consumeRateLimit(adminChangeKey, 10, 60 * 60 * 1000)) {
     return { error: "Too many changes. Try again later." };
   }
 
-  if (!(await requirePermission("users", "manage")) && !(await requirePermission("users", "edit"))) {
-    return { error: "You don't have permission to edit users." };
-  }
   if (!(await isCurrentUserCompanyAdmin()) && !(await isCurrentUserSuperAdmin())) {
-    return { error: "Only a Company Admin can grant this access." };
+    return { error: "Only the Company Admin can transfer this role." };
   }
 
-  if (!isCompanyAdmin) {
-    return { error: "The company admin role can't be revoked." };
+  const parsed = transferCompanyAdminSchema.safeParse({ newAdminId, previousRoleId });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
-  const result = await setUserCompanyAdmin(userId, isCompanyAdmin);
+  const result = await transferCompanyAdmin(parsed.data.newAdminId, parsed.data.previousRoleId);
+  if (!result.error) {
+    await writeAuditLog({
+      action: "user.company_admin_transferred",
+      entityType: "user",
+      entityId: parsed.data.newAdminId,
+      newValues: { previousAdminRoleId: parsed.data.previousRoleId },
+    });
+  }
   revalidatePath("/dashboard/administration/users");
+  revalidatePath("/", "layout");
   return result;
 }
