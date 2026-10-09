@@ -1,135 +1,99 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Download, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { NativeSelect } from "@/components/ui/native-select";
 import { downloadFile as download } from "@/lib/download";
-import { commitImportAction, exportReportAction, getImportTemplateCsv, previewImportAction } from "@/modules/reports/actions";
-import { REPORT_LABELS, type ImportFormState, type ImportJobSummary, type ReportFormState, type ReportKey } from "@/modules/reports/types";
+import { exportReportAction } from "@/modules/reports/actions";
+import { REPORT_LABELS, type ReportFormState, type ReportKey } from "@/modules/reports/types";
 
 const reportState: ReportFormState = { error: null };
-const importState: ImportFormState = { error: null };
 
-export function ReportsAdmin({ jobs, reportKeys }: { jobs: ImportJobSummary[]; reportKeys: ReportKey[] }) {
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [importStateLocal, setImportState] = useState<ImportFormState>(importState);
-  const [isExporting, startExport] = useTransition();
-  const [isImporting, startImport] = useTransition();
+const REPORT_DESCRIPTIONS: Record<ReportKey, string> = {
+  asset_register: "Every asset with code, category, location, status, condition, custodian, serial and warranty/AMC/insurance end dates.",
+  by_status: "How many assets are in each status.",
+  by_location: "How many assets sit at each location.",
+  by_custodian: "How many assets each person holds.",
+  missing_unassigned: "Assets with no location or no custodian — the gaps to clean up.",
+  maintenance_overdue: "Open maintenance tickets that are past their due date.",
+  warranty_amc: "Assets whose warranty, AMC or insurance is still running, with end dates — to plan renewals.",
+  audit_exceptions: "Every problem found across all audits, with the auditor's notes.",
+};
 
-  function handleExport(formData: FormData) {
+/** One card per report; each downloads the full, company-wide data as CSV or Excel. */
+export function ReportsAdmin({ reportKeys }: { reportKeys: ReportKey[] }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const [, startExport] = useTransition();
+
+  function exportReport(reportKey: ReportKey, format: "csv" | "xlsx") {
+    setError(null);
+    setPending(`${reportKey}:${format}`);
+    const formData = new FormData();
+    formData.set("reportKey", reportKey);
+    formData.set("format", format);
     startExport(async () => {
       const result = await exportReportAction(reportState, formData);
+      setPending(null);
       if (result.error) {
-        setExportError(result.error);
+        setError(result.error);
         return;
       }
-      setExportError(null);
       if (result.export) {
         download(result.export.filename, result.export.content, result.export.mime, result.export.encoding);
       }
     });
   }
 
-  function handlePreview(formData: FormData) {
-    startImport(async () => {
-      setImportState(await previewImportAction(importState, formData));
-    });
-  }
-
-  function handleCommit(formData: FormData) {
-    startImport(async () => {
-      const result = await commitImportAction(importState, formData);
-      setImportState(result);
-      if (result.result?.errorCsv) {
-        download("import-errors.csv", result.result.errorCsv, "text/csv");
-      }
-    });
-  }
-
-  async function downloadTemplate() {
-    const csv = await getImportTemplateCsv();
-    download("asset-import-template.csv", csv, "text/csv");
+  if (reportKeys.length === 0) {
+    return (
+      <p className="rounded-xl border border-dashed bg-white p-8 text-center text-sm text-muted-foreground">
+        No reports are available for the modules turned on in this workspace.
+      </p>
+    );
   }
 
   return (
-    <div className="flex flex-col gap-8">
-      <form action={handleExport} className="flex flex-wrap items-end gap-3 rounded-lg border p-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="reportKey">Report</Label>
-          <NativeSelect id="reportKey" name="reportKey" defaultValue={reportKeys[0] ?? "asset_register"}>
-            {reportKeys.map((key) => {
-              // key is the ReportKey union, not a user-controlled path.
-              // eslint-disable-next-line security/detect-object-injection
-              const label = REPORT_LABELS[key];
-              return (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              );
-            })}
-          </NativeSelect>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="format">Format</Label>
-          <NativeSelect id="format" name="format" defaultValue="csv">
-            <option value="csv">CSV</option>
-            <option value="xlsx">Excel</option>
-          </NativeSelect>
-        </div>
-        <Button type="submit" disabled={isExporting}>
-          {isExporting ? "Exporting..." : "Download"}
-        </Button>
-        {exportError ? <p className="w-full text-sm text-destructive">{exportError}</p> : null}
-      </form>
-
-      <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">CSV import</h2>
-        <p className="text-sm text-muted-foreground">
-          Match category, location, and status names exactly. Download the template, then preview before committing.
+    <div className="flex flex-col gap-3">
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
         </p>
-        <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => void downloadTemplate()}>
-          Download template
-        </Button>
-        <form action={handlePreview} className="flex flex-wrap items-end gap-3">
-          <Input name="file" type="file" accept=".csv,text/csv" required />
-          <Button type="submit" variant="outline" disabled={isImporting}>
-            Preview
-          </Button>
-        </form>
-        <form action={handleCommit} className="flex flex-wrap items-end gap-3">
-          <Input name="file" type="file" accept=".csv,text/csv" required />
-          <Button type="submit" disabled={isImporting}>
-            {isImporting ? "Importing..." : "Import"}
-          </Button>
-        </form>
-        {importStateLocal.error ? <p className="text-sm text-destructive">{importStateLocal.error}</p> : null}
-        {importStateLocal.result ? (
-          <p className="text-sm text-muted-foreground">
-            Imported {importStateLocal.result.successCount} row(s), {importStateLocal.result.errorCount} error(s).
-          </p>
-        ) : null}
-        {importStateLocal.preview && importStateLocal.preview.length > 0 ? (
-          <ul className="rounded-lg border p-3 text-sm">
-            {importStateLocal.preview.map((row) => (
-              <li key={row.line}>
-                Line {row.line}: {row.values.name || "(no name)"}
-                {row.error ? <span className="text-destructive"> — {row.error}</span> : " — ok"}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {jobs.length > 0 ? (
-          <ul className="text-sm text-muted-foreground">
-            {jobs.map((job) => (
-              <li key={job.id}>
-                {new Date(job.createdAt).toLocaleString("en-IN")} · {job.successCount} ok / {job.errorCount} errors
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </section>
+      ) : null}
+      <ul className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @5xl:grid-cols-3">
+        {reportKeys.map((key) => (
+          <li key={key} className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4">
+            <div className="flex items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
+                <FileSpreadsheet className="size-4" />
+              </span>
+              <div className="min-w-0">
+                {/* key is the ReportKey union, not a user-controlled path. */}
+                {/* eslint-disable-next-line security/detect-object-injection */}
+                <p className="font-medium text-slate-900">{REPORT_LABELS[key]}</p>
+                {/* eslint-disable-next-line security/detect-object-injection */}
+                <p className="text-sm text-slate-500">{REPORT_DESCRIPTIONS[key]}</p>
+              </div>
+            </div>
+            <div className="mt-auto flex gap-2">
+              {(["csv", "xlsx"] as const).map((format) => (
+                <Button
+                  key={format}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  disabled={pending !== null}
+                  onClick={() => exportReport(key, format)}
+                >
+                  <Download className="size-4" />
+                  {pending === `${key}:${format}` ? "Preparing..." : format === "csv" ? "CSV" : "Excel"}
+                </Button>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

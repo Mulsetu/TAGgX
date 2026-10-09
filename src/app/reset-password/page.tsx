@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { BrandLogo } from "@/components/layout/brand-logo";
 import { ResetPasswordForm } from "./reset-password-form";
 
@@ -18,12 +19,13 @@ export default function ResetPasswordPage({ searchParams }: ResetPasswordPagePro
     searchParams.redirect && searchParams.redirect.startsWith("/") ? searchParams.redirect : "/";
 
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-8 px-4">
-      <div className="flex flex-col items-center gap-3">
-        <BrandLogo alt="TagX by Mulsetu" size={80} className="h-14 w-auto max-w-[16rem]" />
-        <h1 className="text-xl font-semibold">Reset your password</h1>
-      </div>
+    <AuthShell
+      logo={<BrandLogo alt="TagX by Mulsetu" size={80} className="h-14 w-auto max-w-[14rem]" />}
+      title="Choose a new password"
+      subtitle="Use at least 8 characters."
+      showPoweredBy={false}
+    >
       <ResetPasswordForm redirectPath={redirectPath} />
-    </main>
+    </AuthShell>
   );
 }

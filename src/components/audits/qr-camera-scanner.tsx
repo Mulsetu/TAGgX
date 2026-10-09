@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ScanLine } from "lucide-react";
+import { Loader2, ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 function barcodeDetectorAvailable(): boolean {
   return typeof window !== "undefined" && typeof window.BarcodeDetector === "function";
 }
 
-export function QrCameraScanner({ onResult }: { onResult: (value: string) => void }) {
+/** `busy`: the parent is looking up the code that was just read — shown on the Scan button. */
+export function QrCameraScanner({ onResult, busy = false }: { onResult: (value: string) => void; busy?: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const onResultRef = useRef(onResult);
   const [open, setOpen] = useState(false);
@@ -73,6 +74,8 @@ export function QrCameraScanner({ onResult }: { onResult: (value: string) => voi
             if (!value) {
               return;
             }
+            // Short buzz so the person knows the code was read before the lookup returns.
+            navigator.vibrate?.(60);
             onResultRef.current(value);
             setOpen(false);
           })
@@ -96,15 +99,41 @@ export function QrCameraScanner({ onResult }: { onResult: (value: string) => voi
     <div className="flex flex-col gap-2">
       {open ? (
         <div className="overflow-hidden rounded-lg border bg-black">
-          <video ref={videoRef} className="aspect-[3/4] max-h-[60vh] w-full object-cover" playsInline muted autoPlay />
+          <div className="relative">
+            <video ref={videoRef} className="aspect-[3/4] max-h-[60vh] w-full object-cover" playsInline muted autoPlay />
+            {/* Aim frame + live label so it's clear the camera is actively looking. */}
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3">
+              <div className="aspect-square w-1/2 max-w-56 animate-pulse rounded-2xl border-4 border-white/80" />
+              <span className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white">
+                <Loader2 className="size-3.5 animate-spin" />
+                Looking for a QR code…
+              </span>
+            </div>
+          </div>
           <Button type="button" variant="secondary" className="rounded-none" size="touch" onClick={() => setOpen(false)}>
             Stop camera
           </Button>
         </div>
       ) : (
-        <Button type="button" size="touch" className="h-14 text-base" onClick={() => setOpen(true)}>
-          <ScanLine className="size-5" />
-          Scan QR code
+        <Button
+          type="button"
+          size="touch"
+          className="h-14 text-base disabled:opacity-100"
+          onClick={() => setOpen(true)}
+          disabled={busy}
+          aria-busy={busy}
+        >
+          {busy ? (
+            <>
+              <Loader2 className="size-5 animate-spin" />
+              QR detected — finding asset…
+            </>
+          ) : (
+            <>
+              <ScanLine className="size-5" />
+              Scan QR code
+            </>
+          )}
         </Button>
       )}
       {error ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{error}</p> : null}

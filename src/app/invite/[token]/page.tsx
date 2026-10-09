@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
-import { BrandLogo } from "@/components/layout/brand-logo";
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AuthShell } from "@/components/auth/auth-shell";
+import { BrandLogo } from "@/components/layout/brand-logo";
 import { getInviteForAcceptPage } from "@/modules/users/actions";
 import { AcceptInviteForm } from "./accept-invite-form";
 
@@ -13,6 +15,8 @@ interface InvitePageProps {
   params: { token: string };
 }
 
+const logo = <BrandLogo alt="TagX by Mulsetu" size={80} className="h-14 w-auto max-w-[14rem]" />;
+
 export default async function InvitePage({ params }: InvitePageProps) {
   const invite = await getInviteForAcceptPage(params.token);
 
@@ -22,26 +26,25 @@ export default async function InvitePage({ params }: InvitePageProps) {
 
   if (invite.isAccepted || invite.isExpired) {
     return (
-      <main className="flex min-h-svh flex-col items-center justify-center gap-2 px-4 text-center">
-        <BrandLogo alt="TagX by Mulsetu" size={80} className="mx-auto h-14 w-auto max-w-[16rem]" />
-        <h1 className="text-xl font-semibold">
-          {invite.isAccepted ? "This invite has already been used" : "This invite has expired"}
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Contact {invite.companyName}&apos;s admin for a new invite.
-        </p>
-      </main>
+      <AuthShell
+        logo={logo}
+        title={invite.isAccepted ? "This invite has already been used" : "This invite has expired"}
+        subtitle={`Contact ${invite.companyName}'s admin for a new invite.`}
+      >
+        <Link href="/login" className="text-sm font-medium text-[hsl(var(--brand-primary))] hover:underline">
+          Go to sign in
+        </Link>
+      </AuthShell>
     );
   }
 
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-8 px-4">
-      <div className="flex flex-col items-center gap-3">
-        <BrandLogo alt="TagX by Mulsetu" size={80} className="h-14 w-auto max-w-[16rem]" />
-        <h1 className="text-xl font-semibold">Welcome to {invite.companyName}</h1>
-        <p className="text-sm text-muted-foreground">Set a password for {invite.email} to finish setup.</p>
-      </div>
+    <AuthShell
+      logo={logo}
+      title={`Welcome to ${invite.companyName}`}
+      subtitle={`Set a password for ${invite.email} to finish setup.`}
+    >
       <AcceptInviteForm token={params.token} />
-    </main>
+    </AuthShell>
   );
 }

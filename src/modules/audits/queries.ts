@@ -54,6 +54,7 @@ interface AuditItemRow {
   resolved: boolean;
   resolution_notes: string | null;
   exception_photo_path: string | null;
+  maintenance_ticket_id: string | null;
 }
 
 function isAuditStatus(value: string): value is AuditStatus {
@@ -156,6 +157,7 @@ function rowToItem(row: AuditItemRow): AuditItem | null {
     resolved: row.resolved,
     resolutionNotes: row.resolution_notes,
     exceptionPhotoPath: row.exception_photo_path,
+    maintenanceTicketId: row.maintenance_ticket_id,
   };
 }
 
@@ -163,8 +165,20 @@ const ITEM_SELECT = `
   id, audit_id, asset_id, asset_name, asset_code,
   expected_location_id, expected_location_name, expected_condition,
   status, exception_types, found_location_id, found_location_name, found_condition,
-  notes, scanned_at, resolved, resolution_notes, exception_photo_path
+  notes, scanned_at, resolved, resolution_notes, exception_photo_path, maintenance_ticket_id
 `;
+
+/** One item of one audit (RLS-scoped) — used by "Raise ticket". */
+export async function getAuditItem(auditId: string, itemId: string): Promise<AuditItem | null> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("audit_items")
+    .select(ITEM_SELECT)
+    .eq("audit_id", auditId)
+    .eq("id", itemId)
+    .maybeSingle<AuditItemRow>();
+  return data ? rowToItem(data) : null;
+}
 
 export async function listAudits(
   page: number,

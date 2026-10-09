@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,19 +103,29 @@ function UserCard({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-        <NativeSelect
-          className="w-auto min-w-40"
-          value={user.roleId}
-          disabled={isRolePending}
-          aria-label={`Role for ${user.fullName ?? user.email}`}
-          onChange={(event) => handleRoleChange(event.target.value)}
-        >
-          {roles.map((role) => (
-            <option key={role.id} value={role.id}>
-              {role.name}
-            </option>
-          ))}
-        </NativeSelect>
+        {user.isCompanyAdmin ? (
+          // Fixed for everyone, including other Company Admins (migration 0052).
+          <p className="flex items-center gap-1.5 text-sm text-slate-600">
+            <Lock className="size-3.5" />
+            Company Admin · role can&apos;t be changed
+          </p>
+        ) : (
+          <NativeSelect
+            className="w-auto min-w-40"
+            value={user.roleId}
+            disabled={isRolePending}
+            aria-label={`Role for ${user.fullName ?? user.email}`}
+            onChange={(event) => handleRoleChange(event.target.value)}
+          >
+            {roles
+              .filter((role) => !(role.isSystem && role.name === "Company Admin"))
+              .map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.name}
+                </option>
+              ))}
+          </NativeSelect>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {user.isCompanyAdmin && user.isActive ? null : (
             <Button type="button" variant="outline" size="sm" disabled={isActivePending} onClick={handleToggleActive}>

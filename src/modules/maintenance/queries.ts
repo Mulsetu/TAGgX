@@ -1,7 +1,14 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { MaintenancePlanSummary, MaintenanceTicketSummary, StaleTicketReminder } from "./types";
+import type {
+  MaintenancePlanSummary,
+  MaintenanceTicketSummary,
+  StaleTicketReminder,
+  TicketCounts,
+  TicketListResult,
+  TicketView,
+} from "./types";
 
 /**
  * Count of tickets currently 'open' or 'in_progress', via the
@@ -76,6 +83,7 @@ interface TicketRow {
   resolved_at: string | null;
   reporter_name: string | null;
   reporter_email: string | null;
+  reported_by: string | null;
   asset: { name: string; asset_code: string } | null;
   reported_by_user: { full_name: string | null; email: string } | null;
   assigned_to_user: { full_name: string | null; email: string } | null;
@@ -85,30 +93,58 @@ interface TicketRow {
   type_key: string;
 }
 
-/** Every maintenance ticket for the caller's own company (RLS-scoped), for the admin page. */
-export async function listMaintenanceTickets(): Promise<MaintenanceTicketSummary[]> {
-  const supabase = createClient();
+const TICKET_PAGE_SIZE = 25;
 
-  // Explicit cap: PostgREST's own default row limit is a project setting,
-  // not something this code should depend on silently. Tickets accumulate
-  // indefinitely (there's no archival step), so this is the one most
-  // likely to actually hit a limit — ordered newest-first so a company
-  // past the cap still sees its live/recent tickets, just not the oldest
-  // resolved history.
-  const { data, error } = await supabase
+const VIEW_STATUSES: Record<TicketView, MaintenanceTicketSummary["status"][] | null> = {
+  open: ["open"],
+  in_progress: ["in_progress"],
+  resolved: ["resolved", "cancelled"],
+  all: null,
+};
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * One page of the caller's company tickets (RLS-scoped), filtered by view
+ * and optionally to public QR reports only — rows with a reporter name but
+ * no signed-in reporter (see createPublicTicket).
+ */
+export async function listMaintenanceTickets(filters: {
+  view: TicketView;
+  qrOnly: boolean;
+  page: number;
+}): Promise<TicketListResult> {
+  const supabase = createClient();
+  const from = (filters.page - 1) * TICKET_PAGE_SIZE;
+
+  let query = supabase
     .from("maintenance_tickets")
     .select(
-      "id, title, description, status, asset_id, assigned_to, opened_at, resolved_at, reporter_name, reporter_email, vendor_id, priority, due_at, type_key, asset:assets(name, asset_code), reported_by_user:users!maintenance_tickets_reported_by_fkey(full_name, email), assigned_to_user:users!maintenance_tickets_assigned_to_fkey(full_name, email)",
+      "id, title, description, status, asset_id, assigned_to, opened_at, resolved_at, reporter_name, reporter_email, reported_by, vendor_id, priority, due_at, type_key, asset:assets(name, asset_code), reported_by_user:users!maintenance_tickets_reported_by_fkey(full_name, email), assigned_to_user:users!maintenance_tickets_assigned_to_fkey(full_name, email)",
+      { count: "exact" },
     )
-    .order("opened_at", { ascending: false })
-    .limit(2000)
-    .returns<TicketRow[]>();
+    .order("opened_at", { ascending: false });
 
-  if (error || !data) {
-    return [];
+  const statuses = VIEW_STATUSES[filters.view];
+  if (statuses) {
+    query = query.in("status", statuses);
+  }
+  if (filters.qrOnly) {
+    query = query.is("reported_by", null).not("reporter_name", "is", null);
   }
 
-  return data
+  const { data, error, count } = await query
+    .range(from, from + TICKET_PAGE_SIZE - 1)
+    .returns<TicketRow[]>();
+
+  const base = { page: filters.page, pageSize: TICKET_PAGE_SIZE, view: filters.view, qrOnly: filters.qrOnly };
+  if (error || !data) {
+    return { ...base, items: [], totalCount: 0 };
+  }
+
+  const items: MaintenanceTicketSummary[] = data
     .filter((row) => row.asset !== null)
     .map((row) => ({
       id: row.id,
@@ -124,6 +160,8 @@ export async function listMaintenanceTickets(): Promise<MaintenanceTicketSummary
         row.reporter_name ??
         row.reporter_email ??
         null,
+      reporterEmail: row.reported_by ? null : row.reporter_email,
+      source: row.reported_by === null && row.reporter_name !== null ? "public_qr" : "staff",
       assignedToId: row.assigned_to,
       assignedToName: row.assigned_to_user?.full_name ?? row.assigned_to_user?.email ?? null,
       vendorId: row.vendor_id,
@@ -133,6 +171,35 @@ export async function listMaintenanceTickets(): Promise<MaintenanceTicketSummary
       openedAt: row.opened_at,
       resolvedAt: row.resolved_at,
     }));
+
+  return { ...base, items, totalCount: count ?? items.length };
+}
+
+/** Head-only counts for the Maintenance page's tiles. */
+export async function getTicketCounts(): Promise<TicketCounts> {
+  const supabase = createClient();
+  const head = { count: "exact" as const, head: true };
+  const [open, inProgress, overdue, qrOpen] = await Promise.all([
+    supabase.from("maintenance_tickets").select("id", head).eq("status", "open"),
+    supabase.from("maintenance_tickets").select("id", head).eq("status", "in_progress"),
+    supabase
+      .from("maintenance_tickets")
+      .select("id", head)
+      .in("status", ["open", "in_progress"])
+      .lt("due_at", todayIso()),
+    supabase
+      .from("maintenance_tickets")
+      .select("id", head)
+      .in("status", ["open", "in_progress"])
+      .is("reported_by", null)
+      .not("reporter_name", "is", null),
+  ]);
+  return {
+    open: open.count ?? 0,
+    inProgress: inProgress.count ?? 0,
+    overdue: overdue.count ?? 0,
+    qrOpen: qrOpen.count ?? 0,
+  };
 }
 
 /** How many public QR reports this email has filed on an asset recently (rate limit). */

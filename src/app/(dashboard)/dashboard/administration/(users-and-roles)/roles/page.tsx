@@ -6,7 +6,10 @@ import { RoleEditor } from "./role-editor";
 
 export default async function RolesPage() {
   await assertPermission("roles", "view");
-  const canCountUsers = await requirePermission("users", "view");
+  const [canCountUsers, canDelete] = await Promise.all([
+    requirePermission("users", "view"),
+    requirePermission("roles", "delete"),
+  ]);
   const [roles, users] = await Promise.all([
     getRolesForAdministration(),
     canCountUsers ? getCompanyUsersForAdmin() : Promise.resolve([]),
@@ -23,7 +26,7 @@ export default async function RolesPage() {
         </p>
         <CreateRoleForm />
       </div>
-      <RoleEditor roles={roles} userCounts={userCounts} />
+      <RoleEditor roles={roles} userCounts={userCounts} canDelete={canDelete} />
     </div>
   );
 }

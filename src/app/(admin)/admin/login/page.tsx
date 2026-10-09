@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { TagXLogo } from "@/components/layout/brand-logo";
 import { AdminLoginForm } from "./login-form";
 
@@ -9,12 +10,13 @@ export const metadata: Metadata = {
 
 export default function AdminLoginPage({ searchParams }: { searchParams?: { error?: string } }) {
   return (
-    <main className="flex min-h-svh flex-col items-center justify-center gap-8 px-4">
-      <div className="flex flex-col items-center gap-3">
-        <TagXLogo size={180} className="h-16 w-auto max-w-xs md:h-20" />
-        <p className="text-sm text-muted-foreground">Platform administrator sign in</p>
-      </div>
+    <AuthShell
+      logo={<TagXLogo size={120} className="h-14 w-auto max-w-[14rem]" />}
+      title="Platform admin"
+      subtitle="Sign in to manage companies, plans and billing"
+      showPoweredBy={false}
+    >
       <AdminLoginForm errorCode={searchParams?.error} />
-    </main>
+    </AuthShell>
   );
 }

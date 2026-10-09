@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardWidgetKey } from "@/lib/permissions/workspace-config";
-import type { ImportJobSummary, ReportKey, ReportTable } from "./types";
+import type { ReportKey, ReportTable } from "./types";
 
 interface AssetReportRow {
   id: string;
@@ -463,35 +463,6 @@ export async function getDashboardWidgetData(keys: DashboardWidgetKey[]): Promis
 
   await Promise.all(jobs);
   return { values, charts };
-}
-
-export async function listImportJobs(): Promise<ImportJobSummary[]> {
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("import_jobs")
-    .select("id, status, total_rows, success_count, error_count, error_report, created_at")
-    .order("created_at", { ascending: false })
-    .limit(20)
-    .returns<
-      {
-        id: string;
-        status: string;
-        total_rows: number;
-        success_count: number;
-        error_count: number;
-        error_report: string | null;
-        created_at: string;
-      }[]
-    >();
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    status: row.status,
-    totalRows: row.total_rows,
-    successCount: row.success_count,
-    errorCount: row.error_count,
-    errorReport: row.error_report,
-    createdAt: row.created_at,
-  }));
 }
 
 export async function lookupCatalogs(): Promise<{

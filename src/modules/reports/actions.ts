@@ -24,14 +24,12 @@ import { getRequestAuthUser } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit-log";
 import { createAsset, generateAssetCode } from "@/modules/assets/mutations";
 import { getCategoryPrefixForAsset } from "@/modules/categories/actions";
-import { buildReport, getDashboardWidgetData, listImportJobs, lookupCatalogs } from "./queries";
+import { buildReport, getDashboardWidgetData, lookupCatalogs } from "./queries";
 import { insertImportJob } from "./mutations";
-import { IMPORT_COLUMNS, exportReportSchema } from "./validation";
+import { exportReportSchema } from "./validation";
 import type {
   DashboardHomeWidget,
   ImportFormState,
-  ImportJobSummary,
-  ImportPreviewRow,
   ReportFormState,
   ReportKey,
   ReportTable,
@@ -107,20 +105,6 @@ export async function getAvailableReportKeys(): Promise<ReportKey[]> {
     const moduleKey = REPORT_MODULE_MAP[key];
     return !moduleKey || runtime.modules[moduleKey];
   });
-}
-
-export async function getImportJobsForAdmin(): Promise<ImportJobSummary[]> {
-  if (!(await requireModule("reports")) || !(await requirePermission("reports", "view"))) {
-    return [];
-  }
-  return listImportJobs();
-}
-
-export async function getImportTemplateCsv(): Promise<string> {
-  if (!(await requireModule("reports")) || !(await requirePermission("reports", "view"))) {
-    return "";
-  }
-  return IMPORT_COLUMNS.join(",");
 }
 
 export async function exportReportAction(_prev: ReportFormState, formData: FormData): Promise<ReportFormState> {
@@ -215,31 +199,6 @@ function rowToRecord(headers: string[], values: string[]): Record<string, string
   return record;
 }
 
-export async function previewImportAction(_prev: ImportFormState, formData: FormData): Promise<ImportFormState> {
-  if (!(await requireWritableTenant())) {
-    return { error: TENANT_READ_ONLY_MESSAGE };
-  }
-  if (!(await requireModule("reports")) || !(await requirePermission("assets", "create"))) {
-    return { error: "You don't have permission to import assets." };
-  }
-  const file = formData.get("file");
-  if (!(file instanceof File)) {
-    return { error: "Choose a CSV file." };
-  }
-  const text = await file.text();
-  const parsed = parseCsv(text);
-  const header = parsed[0];
-  if (!header || header[0] !== "name") {
-    return { error: "CSV must start with a header row beginning with name." };
-  }
-  const catalogs = await lookupCatalogs();
-  const preview: ImportPreviewRow[] = parsed.slice(1, 21).map((values, index) => {
-    const record = rowToRecord(header, values);
-    return { line: index + 2, values: record, error: validateImportRow(record, catalogs) };
-  });
-  return { error: null, preview };
-}
-
 function validateImportRow(
   record: Record<string, string>,
   catalogs: Awaited<ReturnType<typeof lookupCatalogs>>,
@@ -249,100 +208,6 @@ function validateImportRow(
   if (!record.location || !catalogs.locations.get(record.location.toLowerCase())) return "Unknown location";
   if (!record.status || !catalogs.statuses.get(record.status.toLowerCase())) return "Unknown status";
   return undefined;
-}
-
-export async function commitImportAction(_prev: ImportFormState, formData: FormData): Promise<ImportFormState> {
-  if (!(await requireWritableTenant())) {
-    return { error: TENANT_READ_ONLY_MESSAGE };
-  }
-  if (!(await requireModule("reports")) || !(await requirePermission("assets", "create"))) {
-    return { error: "You don't have permission to import assets." };
-  }
-  const companyId = headers().get(TENANT_HEADERS.companyId);
-  const user = await getRequestAuthUser();
-  if (!companyId || !user) {
-    return { error: "Could not determine your company." };
-  }
-  const file = formData.get("file");
-  if (!(file instanceof File)) {
-    return { error: "Choose a CSV file." };
-  }
-
-  const parsed = parseCsv(await file.text());
-  const header = parsed[0];
-  if (!header) {
-    return { error: "Empty CSV." };
-  }
-  const catalogs = await lookupCatalogs();
-  const errors: string[][] = [["line", "name", "error"]];
-  let successCount = 0;
-
-  for (let i = 1; i < parsed.length; i += 1) {
-    const record = rowToRecord(header, parsed[i] ?? []);
-    const rowError = validateImportRow(record, catalogs);
-    if (rowError) {
-      errors.push([String(i + 1), record.name ?? "", rowError]);
-      continue;
-    }
-    const categoryName = record.category?.toLowerCase() ?? "";
-    const locationName = record.location?.toLowerCase() ?? "";
-    const statusName = record.status?.toLowerCase() ?? "";
-    const categoryId = catalogs.categories.get(categoryName);
-    const locationId = catalogs.locations.get(locationName);
-    const status = catalogs.statuses.get(statusName);
-    if (!categoryId || !locationId || !status) {
-      errors.push([String(i + 1), record.name ?? "", "Lookup failed"]);
-      continue;
-    }
-    const prefix = await getCategoryPrefixForAsset(categoryId);
-    const assetCode = record.asset_code || (await generateAssetCode(companyId, prefix ?? undefined));
-    const name = record.name;
-    if (!name) {
-      errors.push([String(i + 1), "", "Name is required"]);
-      continue;
-    }
-    const result = await createAsset({
-      companyId,
-      createdBy: user.id,
-      assetCode,
-      input: {
-        name,
-        categoryId,
-        locationId,
-        statusId: status.id,
-        condition: record.condition || undefined,
-        serialNumber: record.serial_number || undefined,
-        brand: record.brand || undefined,
-        model: record.model || undefined,
-        vendor: record.vendor || undefined,
-        purchaseDate: record.purchase_date || undefined,
-        purchasePrice: record.purchase_price ? Number(record.purchase_price) : undefined,
-        warrantyEndDate: record.warranty_end_date || undefined,
-        amcEndDate: record.amc_end_date || undefined,
-        insuranceExpiryDate: record.insurance_expiry_date || undefined,
-        ownershipType: "owned",
-      },
-      customFields: {},
-    });
-    if ("error" in result) {
-      errors.push([String(i + 1), record.name ?? "", result.error]);
-      continue;
-    }
-    successCount += 1;
-  }
-
-  const errorCount = errors.length - 1;
-  const errorCsv = errorCount > 0 ? errors.map((row) => row.map(csvEscape).join(",")).join("\n") : null;
-  await insertImportJob({
-    companyId,
-    createdBy: user.id,
-    totalRows: parsed.length - 1,
-    successCount,
-    errorCount,
-    errorReport: errorCsv,
-  });
-  await writeAuditLog({ action: "assets.imported", entityType: "import_job", newValues: { successCount, errorCount } });
-  return { error: null, result: { successCount, errorCount, errorCsv: errorCsv ?? undefined } };
 }
 
 /** Add-asset CSV import. Codes always come from the category prefix, and rows stop at the plan limit. */

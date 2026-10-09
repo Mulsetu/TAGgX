@@ -13,14 +13,21 @@ import { dispatchEventEmail } from "@/modules/email/dispatch";
 import { getVendorById } from "@/modules/vendors/queries";
 import {
   getOpenMaintenanceTicketCount,
+  getTicketCounts,
   listMaintenancePlans,
   listMaintenanceTickets,
   listMaintenanceTypes,
   type MaintenanceTypeOption,
 } from "./queries";
 import { createPlan, createTicket, deletePlan, setPlanActive, updatePlan, updateTicket } from "./mutations";
-import { createTicketSchema, planFormSchema, updateTicketSchema } from "./validation";
-import type { MaintenanceFormState, MaintenancePlanSummary, MaintenanceTicketSummary, OpenTicketCount } from "./types";
+import { createTicketSchema, planFormSchema, ticketListQuerySchema, updateTicketSchema } from "./validation";
+import type {
+  MaintenanceFormState,
+  MaintenancePlanSummary,
+  OpenTicketCount,
+  TicketCounts,
+  TicketListResult,
+} from "./types";
 
 const ADMIN_PATH = "/dashboard/administration/maintenance";
 const PLANS_PATH = "/dashboard/administration/maintenance/plans";
@@ -38,11 +45,26 @@ export async function getOpenMaintenanceTicketsForDashboard(): Promise<OpenTicke
   return [{ label: "Open", count }];
 }
 
-export async function getMaintenanceTicketsForAdmin(): Promise<MaintenanceTicketSummary[]> {
+export async function getMaintenanceTicketsForAdmin(
+  rawSearchParams: Record<string, string | string[] | undefined>,
+): Promise<TicketListResult> {
+  const parsed = ticketListQuerySchema.parse({
+    view: rawSearchParams.view,
+    source: rawSearchParams.source,
+    page: rawSearchParams.page,
+  });
+  const filters = { view: parsed.view, qrOnly: parsed.source === "qr", page: parsed.page };
   if (!(await requireModule("maintenance")) || !(await requirePermission("maintenance", "view"))) {
-    return [];
+    return { ...filters, items: [], totalCount: 0, pageSize: 25 };
   }
-  return listMaintenanceTickets();
+  return listMaintenanceTickets(filters);
+}
+
+export async function getMaintenanceTicketCounts(): Promise<TicketCounts> {
+  if (!(await requireModule("maintenance")) || !(await requirePermission("maintenance", "view"))) {
+    return { open: 0, inProgress: 0, overdue: 0, qrOpen: 0 };
+  }
+  return getTicketCounts();
 }
 
 export async function getMaintenancePlansForAdmin(): Promise<MaintenancePlanSummary[]> {

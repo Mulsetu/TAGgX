@@ -18,6 +18,7 @@ export async function createTicket(params: {
   dueAt?: string;
   typeKey?: string;
   planId?: string;
+  assignedTo?: string;
 }): Promise<MaintenanceMutationResult> {
   const supabase = createClient();
 
@@ -36,6 +37,7 @@ export async function createTicket(params: {
       due_at: params.dueAt ?? null,
       type_key: params.typeKey ?? "corrective",
       plan_id: params.planId ?? null,
+      assigned_to: params.assignedTo ?? null,
     })
     .select("id")
     .single<{ id: string }>();

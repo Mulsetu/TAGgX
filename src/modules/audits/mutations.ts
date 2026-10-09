@@ -292,3 +292,22 @@ export async function resolveAuditItem(
   }
   return { error: null };
 }
+
+/** Records the ticket an exception raised; refuses if one is already linked. */
+export async function linkAuditItemTicket(itemId: string, ticketId: string): Promise<{ error: string | null }> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("audit_items")
+    .update({ maintenance_ticket_id: ticketId })
+    .eq("id", itemId)
+    .is("maintenance_ticket_id", null)
+    .select("id")
+    .maybeSingle<{ id: string }>();
+  if (error) {
+    return { error: "The ticket was created but could not be linked to the audit." };
+  }
+  if (!data) {
+    return { error: "A ticket was already raised for this asset." };
+  }
+  return { error: null };
+}

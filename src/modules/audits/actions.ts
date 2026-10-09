@@ -10,6 +10,10 @@ import { requirePermission } from "@/lib/permissions/has-permission";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { requireModule } from "@/lib/permissions/features";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
+import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { writeAuditLog } from "@/lib/audit-log";
+import { dispatchEventEmail } from "@/modules/email/dispatch";
+import { createTicket } from "@/modules/maintenance/mutations";
 import type { PermissionAction } from "@/lib/permissions/taxonomy";
 import { auditExceptionLabel } from "./types";
 import type {
@@ -31,6 +35,7 @@ import {
   createAuditSchema,
   markMissingSchema,
   parseAssetScanQuery,
+  raiseAuditTicketSchema,
   recordAuditScanSchema,
   resolveAuditItemSchema,
 } from "./validation";
@@ -38,6 +43,7 @@ import {
   findActiveAuditItemForAsset,
   findAuditItemByScan,
   getAuditById,
+  getAuditItem,
   getLocationName,
   listAllAuditItems,
   listAuditConditionOptions,
@@ -51,6 +57,7 @@ import {
   completeAudit,
   createAuditWithItems,
   deleteDraftAudit,
+  linkAuditItemTicket,
   markAuditItemMissing,
   recordAuditScan,
   resolveAuditItem,
@@ -377,10 +384,13 @@ export async function recordAuditScanAction(
 
   let exceptionPhotoPath: string | null = null;
   const photo = formData.get("photo");
-  if (isException && audit.requirePhotoOnException) {
-    if (!(photo instanceof File) || photo.size === 0) {
-      return { error: "A photo is required when recording an exception." };
-    }
+  const hasPhoto = photo instanceof File && photo.size > 0;
+  if (isException && audit.requirePhotoOnException && !hasPhoto) {
+    return { error: "A photo is required when recording an exception." };
+  }
+  // Keep any photo attached to a problem report, not only when the audit
+  // requires one — previously an optional photo was silently dropped.
+  if (isException && hasPhoto) {
     const companyId = getCompanyIdFromHeaders();
     if (!companyId) {
       return { error: "Could not determine your company." };
@@ -502,6 +512,125 @@ export async function resolveAuditItemAction(
   const result = await resolveAuditItem(parsed.data.itemId, user.id, parsed.data.resolutionNotes);
   revalidateAudit(parsed.data.auditId);
   return result;
+}
+
+function formatAuditCondition(value: string | null): string {
+  return value ? value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()) : "—";
+}
+
+/**
+ * Turns an audit exception into a maintenance ticket assigned to someone
+ * (typically a Company Admin or Auditor), carrying everything the audit
+ * found. One ticket per exception — the link on audit_items (migration
+ * 0053) blocks duplicates.
+ */
+export async function raiseAuditTicketAction(
+  _prevState: AuditFormState,
+  formData: FormData,
+): Promise<AuditFormState> {
+  if (!(await requireWritableTenant())) {
+    return { error: TENANT_READ_ONLY_MESSAGE };
+  }
+  if (!(await requireModule("maintenance")) || !(await requirePermission("maintenance", "create"))) {
+    return { error: "You don't have permission to create maintenance tickets." };
+  }
+  if (!consumeRateLimit(`audit-ticket:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
+    return { error: "Too many requests. Wait a minute and try again." };
+  }
+
+  const parsed = raiseAuditTicketSchema.safeParse({
+    auditId: formData.get("auditId"),
+    itemId: formData.get("itemId"),
+    assignedTo: formData.get("assignedTo") ?? "",
+    priority: formData.get("priority"),
+    note: formData.get("note") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const companyId = getCompanyIdFromHeaders();
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!companyId || !user) {
+    return { error: "You must be signed in." };
+  }
+
+  const [audit, item] = await Promise.all([
+    getAuditById(parsed.data.auditId),
+    getAuditItem(parsed.data.auditId, parsed.data.itemId),
+  ]);
+  if (!audit || !item) {
+    return { error: "Audit item not found." };
+  }
+  if (item.status !== "exception" || item.resolved) {
+    return { error: "Only open problems can raise a ticket." };
+  }
+  if (item.maintenanceTicketId) {
+    return { error: "A ticket was already raised for this asset." };
+  }
+  if (parsed.data.assignedTo) {
+    const { data: assignee } = await supabase.from("users").select("id").eq("id", parsed.data.assignedTo).maybeSingle();
+    if (!assignee) {
+      return { error: "Choose someone from your company." };
+    }
+  }
+
+  const problems = item.exceptionTypes.map(auditExceptionLabel).join(", ") || "Audit problem";
+  const lines = [
+    `Raised from audit "${audit.name}".`,
+    `Problems: ${problems}.`,
+    `Expected: ${item.expectedLocationName ?? "—"} · ${formatAuditCondition(item.expectedCondition)}.`,
+    `Found: ${item.foundLocationName ?? "—"} · ${formatAuditCondition(item.foundCondition)}.`,
+    item.notes ? `Auditor remark: ${item.notes}` : null,
+    item.exceptionPhotoPath ? "A photo is attached on the audit page." : null,
+    parsed.data.note ? `Note: ${parsed.data.note}` : null,
+  ].filter((line): line is string => line !== null);
+
+  const ticket = await createTicket({
+    companyId,
+    assetId: item.assetId,
+    title: `Audit: ${problems} — ${item.assetName}`.slice(0, 200),
+    description: lines.join("\n").slice(0, 2000),
+    reportedBy: user.id,
+    priority: parsed.data.priority,
+    typeKey: "corrective",
+    assignedTo: parsed.data.assignedTo,
+  });
+  if ("error" in ticket) {
+    return { error: ticket.error };
+  }
+
+  const linked = await linkAuditItemTicket(item.id, ticket.id);
+  if (linked.error) {
+    return { error: linked.error };
+  }
+
+  await writeAuditLog({
+    action: "maintenance.created",
+    entityType: "maintenance_ticket",
+    entityId: ticket.id,
+    newValues: { fromAuditId: audit.id, auditItemId: item.id, assignedTo: parsed.data.assignedTo ?? null },
+  });
+  await dispatchEventEmail({
+    companyId,
+    eventKey: "maintenance_created",
+    entityId: ticket.id,
+    occurrenceKey: `ticket:${ticket.id}:created`,
+    vars: {
+      asset_name: item.assetName,
+      asset_code: item.assetCode,
+      maintenance_title: `Audit: ${problems}`,
+      vendor_name: "",
+      asset_url: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/assets/${item.assetId}`,
+    },
+  });
+
+  revalidateAudit(audit.id);
+  revalidatePath("/dashboard/administration/maintenance");
+  return { error: null };
 }
 
 export async function getAuditTagContext(assetId: string): Promise<AuditTagContext | null> {

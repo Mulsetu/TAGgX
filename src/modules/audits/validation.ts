@@ -49,6 +49,14 @@ export const resolveAuditItemSchema = z.object({
   resolutionNotes: z.string().trim().min(1, "Add a resolution note").max(2000),
 });
 
+export const raiseAuditTicketSchema = z.object({
+  auditId: z.string().uuid(),
+  itemId: z.string().uuid(),
+  assignedTo: z.preprocess((value) => (value === "" ? undefined : value), z.string().uuid().optional()),
+  priority: z.enum(["low", "normal", "high", "emergency"]).catch("normal"),
+  note: z.preprocess((value) => (value === "" ? undefined : value), z.string().trim().max(1000).optional()),
+});
+
 export const markMissingSchema = z.object({
   auditId: z.string().uuid(),
   itemId: z.string().uuid(),

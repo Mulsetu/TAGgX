@@ -38,25 +38,8 @@ export interface ReportFormState {
   export?: ExportResult;
 }
 
-export interface ImportPreviewRow {
-  line: number;
-  values: Record<string, string>;
-  error?: string;
-}
-
-export interface ImportJobSummary {
-  id: string;
-  status: string;
-  totalRows: number;
-  successCount: number;
-  errorCount: number;
-  createdAt: string;
-  errorReport: string | null;
-}
-
 export interface ImportFormState {
   error: string | null;
-  preview?: ImportPreviewRow[];
   result?: { successCount: number; errorCount: number; errorCsv?: string };
 }
 
