@@ -68,6 +68,10 @@ export interface UserActionState {
   error: string | null;
 }
 
+export interface ConfirmSignupEmailState {
+  error: string | null;
+}
+
 export interface AccountSignupState {
   error: string | null;
   checkEmail?: boolean;

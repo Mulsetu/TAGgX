@@ -6,9 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
-import { openRazorpayCheckout } from "@/components/billing/open-razorpay-checkout";
+import { openRazorpayCheckout, type RazorpayCheckoutResult } from "@/components/billing/open-razorpay-checkout";
 import { formatInr } from "@/lib/money";
-import { confirmSignupPaymentAction, createWorkspaceForCurrentUserAction } from "@/modules/billing/actions";
+import {
+  abandonSignupCheckoutAction,
+  confirmSignupPaymentAction,
+  createWorkspaceForCurrentUserAction,
+} from "@/modules/billing/actions";
 import type { BillingPlan, CreateWorkspaceState } from "@/modules/billing/types";
 
 const initialState: CreateWorkspaceState = { error: null };
@@ -43,40 +47,40 @@ export function OnboardingForm({
     startTransition(async () => {
       const result = await createWorkspaceForCurrentUserAction(initialState, formData);
       if (result.checkout) {
+        let payment: RazorpayCheckoutResult | null = null;
+        let failure = "Payment was cancelled.";
         try {
-          const payment = await openRazorpayCheckout(result.checkout);
-          if (!payment) {
-            setState({
-              error: "Payment was cancelled. You can finish paying from Settings.",
-              redirectPath: result.redirectPath,
-            });
-            if (result.redirectPath) {
-              router.push(result.redirectPath);
-            }
+          payment = await openRazorpayCheckout(result.checkout);
+        } catch (error) {
+          failure = error instanceof Error ? error.message : "Payment failed.";
+        }
+
+        if (!payment) {
+          // Nothing paid: drop the unpaid workspace so the plan is only
+          // purchased — and the company only created — once payment succeeds.
+          const abandoned = await abandonSignupCheckoutAction();
+          if (abandoned.discarded) {
+            setState({ error: `${failure} Your workspace was not created — try again to finish payment.` });
             return;
           }
-
-          const confirmData = new FormData();
-          confirmData.set("razorpayPaymentId", payment.razorpay_payment_id);
-          confirmData.set("razorpaySignature", payment.razorpay_signature);
-          confirmData.set(
-            "razorpaySubscriptionId",
-            payment.razorpay_subscription_id ?? result.checkout.subscriptionId ?? "",
-          );
-          if (result.checkout.confirmToken) {
-            confirmData.set("confirmToken", result.checkout.confirmToken);
-          }
-
-          const confirmed = await confirmSignupPaymentAction({ error: null }, confirmData);
-          router.push(confirmed.redirectPath ?? result.redirectPath ?? "/dashboard");
-          return;
-        } catch (error) {
-          setState({
-            error: error instanceof Error ? error.message : "Payment failed.",
-            redirectPath: result.redirectPath,
-          });
+          router.push(abandoned.redirectPath ?? result.redirectPath ?? "/dashboard");
           return;
         }
+
+        const confirmData = new FormData();
+        confirmData.set("razorpayPaymentId", payment.razorpay_payment_id);
+        confirmData.set("razorpaySignature", payment.razorpay_signature);
+        confirmData.set(
+          "razorpaySubscriptionId",
+          payment.razorpay_subscription_id ?? result.checkout.subscriptionId ?? "",
+        );
+        if (result.checkout.confirmToken) {
+          confirmData.set("confirmToken", result.checkout.confirmToken);
+        }
+
+        const confirmed = await confirmSignupPaymentAction({ error: null }, confirmData);
+        router.push(confirmed.redirectPath ?? result.redirectPath ?? "/dashboard");
+        return;
       }
 
       if (result.redirectPath) {
@@ -102,7 +106,7 @@ export function OnboardingForm({
         {plan ? (
           <p className="text-xs text-muted-foreground">
             {plan.priceMonthly > 0
-              ? `Paid plans are billed through Razorpay. Extra assets later: ${plan.extraAssetQuantity.toLocaleString("en-IN")} for ${formatInr(plan.extraAssetPrice)} per pack.`
+              ? `You'll pay through Razorpay next — your workspace is created once payment succeeds. Extra assets later: ${plan.extraAssetQuantity.toLocaleString("en-IN")} for ${formatInr(plan.extraAssetPrice)} per pack.`
               : "This plan does not require a payment record to start."}
           </p>
         ) : null}

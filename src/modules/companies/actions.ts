@@ -18,7 +18,15 @@ import { createSystemAdminRole, seedDefaultCompanyRoles } from "@/modules/roles/
 import { seedDefaultAssetStatuses } from "@/modules/statuses/mutations";
 import { seedDefaultAssetConditions } from "@/modules/conditions/mutations";
 import { uploadFileToR2 } from "@/modules/storage/mutations";
-import { createCompanySchema, requestDeletionSchema, slugSchema, updateCompanyBrandingSchema, updateCompanySchema } from "./validation";
+import {
+  builtinFieldOrderSchema,
+  builtinFieldSchema,
+  createCompanySchema,
+  requestDeletionSchema,
+  slugSchema,
+  updateCompanyBrandingSchema,
+  updateCompanySchema,
+} from "./validation";
 import { getCompanyBySlug, getCompanyById, getCompanyByIdAdmin, getCompanyWorkspaceSettings, getUserIdsForCompany, getWorkspaceExportData, listCompanies } from "./queries";
 import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/queries";
 import { applyPlanLimitsToCompany, insertBillingPayment, upsertCompanySubscription } from "@/modules/billing/mutations";
@@ -51,7 +59,6 @@ import type {
 } from "./types";
 import { FEATURE_MODULES, clampModulesToPlan, parseEnabledModules, parsePlanModules, type EnabledModules } from "@/lib/permissions/feature-catalog";
 import {
-  ASSET_FIELD_KEYS,
   DASHBOARD_WIDGET_KEYS,
   DASHBOARD_WIDGET_SIZES,
   WORKFLOW_KEYS,
@@ -61,6 +68,7 @@ import {
   parseDashboardWidgets,
   parseStringCatalog,
   parseWorkflowConfig,
+  type AssetFieldConfig,
   type DashboardWidgetConfig,
   type DashboardWidgetSize,
 } from "@/lib/permissions/workspace-config";
@@ -562,17 +570,6 @@ export async function updateWorkspaceSettingsAction(
     patch = resetDashboard
       ? { dashboardWidgets: parseDashboardWidgets(null), dashboardLayouts: parseDashboardLayouts(null) }
       : { dashboardWidgets: widgetsFromForm(formData, "widget_", parseDashboardWidgets(null)) };
-  } else if (intent === "fields") {
-    const assetFieldConfig = parseAssetFieldConfig(null);
-    for (const key of ASSET_FIELD_KEYS) {
-      assetFieldConfig[key] = {
-        enabled: formData.get(`field_enabled_${key}`) === "on",
-        required: formData.get(`field_required_${key}`) === "on",
-        label: String(formData.get(`field_label_${key}`) ?? "").trim() || assetFieldConfig[key].label,
-        order: Number(formData.get(`field_order_${key}`) ?? assetFieldConfig[key].order) || assetFieldConfig[key].order,
-      };
-    }
-    patch = { assetFieldConfig };
   } else {
     return { error: "Unknown settings section." };
   }
@@ -762,4 +759,79 @@ export async function cancelWorkspaceDeletionRequestAction(): Promise<DeletionRe
   revalidatePath("/dashboard/administration/settings");
 
   return { error: null, success: true };
+}
+
+/** Loads the caller's company field config for a built-in field change; null when not allowed. */
+async function editableFieldConfig(): Promise<{ companyId: string; config: AssetFieldConfig } | { error: string }> {
+  if (!(await requirePermission("settings", "edit"))) {
+    return { error: "You don't have permission to edit asset fields." };
+  }
+  const companyId = headers().get(TENANT_HEADERS.companyId);
+  if (!companyId) {
+    return { error: "Could not determine your company." };
+  }
+  if (!consumeRateLimit(`workspace-settings:${companyId}`, 30, 60_000)) {
+    return { error: "Too many saves. Wait a minute and try again." };
+  }
+  const settings = await getCompanyWorkspaceSettings(companyId);
+  return { companyId, config: parseAssetFieldConfig(settings.assetFieldConfig) };
+}
+
+async function saveFieldConfig(companyId: string, config: AssetFieldConfig, change: Record<string, unknown>) {
+  const result = await upsertCompanyWorkspaceSettings(companyId, { assetFieldConfig: config });
+  if (result.error) {
+    return { error: result.error };
+  }
+  await writeAuditLog({
+    action: "settings.updated",
+    entityType: "company_settings",
+    entityId: companyId,
+    newValues: { intent: "fields", ...change },
+  });
+  revalidatePath("/dashboard/administration/fields");
+  revalidatePath("/assets", "layout");
+  return { error: null };
+}
+
+/** Rename, hide, or require one built-in asset field (Asset fields page dialog). */
+export async function updateBuiltinFieldAction(
+  key: string,
+  _prevState: UpdateWorkspaceSettingsState,
+  formData: FormData,
+): Promise<UpdateWorkspaceSettingsState> {
+  const parsed = builtinFieldSchema.safeParse({
+    key,
+    label: formData.get("label"),
+    enabled: formData.get("enabled") === "on",
+    required: formData.get("required") === "on",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid field." };
+  }
+  const loaded = await editableFieldConfig();
+  if ("error" in loaded) {
+    return { error: loaded.error };
+  }
+  const { key: fieldKey, label, enabled, required } = parsed.data;
+  const config = { ...loaded.config };
+  config[fieldKey] = { ...config[fieldKey], label, enabled, required: enabled && required };
+  const saved = await saveFieldConfig(loaded.companyId, config, { field: fieldKey, ...config[fieldKey] });
+  return saved.error ? { error: saved.error } : { error: null, success: true };
+}
+
+/** Drag-to-reorder for built-in fields; the order is the one the asset form shows. */
+export async function reorderBuiltinFieldsAction(keys: string[]): Promise<{ error: string | null }> {
+  const parsed = builtinFieldOrderSchema.safeParse(keys);
+  if (!parsed.success) {
+    return { error: "Invalid order." };
+  }
+  const loaded = await editableFieldConfig();
+  if ("error" in loaded) {
+    return { error: loaded.error };
+  }
+  const config = { ...loaded.config };
+  parsed.data.forEach((fieldKey, index) => {
+    config[fieldKey] = { ...config[fieldKey], order: (index + 1) * 10 };
+  });
+  return saveFieldConfig(loaded.companyId, config, { order: parsed.data });
 }

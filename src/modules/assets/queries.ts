@@ -16,10 +16,12 @@ import type {
   AssetCriticality,
   AssetOption,
   CategoryAssetCount,
+  ConditionOption,
   DocumentExpiryStatus,
   LocationAssetCount,
   OwnershipType,
   PublicAsset,
+  QrLabel,
   StatusAssetCount,
   UpcomingWarrantyReminder,
   WarrantyReminderReason,
@@ -1044,4 +1046,78 @@ export async function listAssetLocationHistory(assetId: string): Promise<AssetLo
     movedByName: row.mover?.full_name ?? row.mover?.email ?? null,
     notes: row.notes,
   }));
+}
+
+/** Ids per `.in()` request — keeps the PostgREST URL well under its length limit. */
+const ID_CHUNK = 150;
+
+/** Name + code for bulk QR labels, in the order the ids were given. RLS scopes to the company. */
+export async function listAssetQrLabels(ids: string[]): Promise<QrLabel[]> {
+  const supabase = createClient();
+  const byId = new Map<string, QrLabel>();
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const { data } = await supabase
+      .from("assets")
+      .select("id, name, asset_code")
+      .in("id", ids.slice(i, i + ID_CHUNK))
+      .is("deleted_at", null)
+      .returns<{ id: string; name: string; asset_code: string }[]>();
+    for (const row of data ?? []) {
+      byId.set(row.id, { id: row.id, name: row.name, assetCode: row.asset_code });
+    }
+  }
+  return ids.map((id) => byId.get(id)).filter((label): label is QrLabel => label !== undefined);
+}
+
+export interface AssetImportReferences {
+  categories: AssetOption[];
+  locations: AssetOption[];
+  statuses: AssetOption[];
+  vendors: AssetOption[];
+  users: { id: string; email: string }[];
+  conditions: ConditionOption[];
+}
+
+/** Everything the CSV import resolves by name/email (RLS scopes it all to the company). */
+export async function getAssetImportReferences(): Promise<AssetImportReferences> {
+  const supabase = createClient();
+  const [categories, statuses, vendors, users, conditions, locations] = await Promise.all([
+    supabase.from("asset_categories").select("id, name").order("name").returns<NameRow[]>(),
+    supabase.from("asset_statuses").select("id, name").order("sort_order").returns<NameRow[]>(),
+    supabase.from("vendors").select("id, name").eq("is_active", true).order("name").returns<NameRow[]>(),
+    supabase.from("users").select("id, email").eq("is_active", true).returns<{ id: string; email: string }[]>(),
+    supabase
+      .from("asset_conditions")
+      .select("key, name")
+      .eq("is_active", true)
+      .order("sort_order")
+      .returns<{ key: string; name: string }[]>(),
+    listLocationOptions(),
+  ]);
+  return {
+    categories: categories.data ?? [],
+    locations: locations.map((location) => ({ id: location.id, name: location.name })),
+    statuses: statuses.data ?? [],
+    vendors: vendors.data ?? [],
+    users: users.data ?? [],
+    conditions: (conditions.data ?? []).map((row) => ({ key: row.key, name: row.name })),
+  };
+}
+
+/** asset_code (lower-cased) → id, for parent/linked asset columns in an import. */
+export async function getAssetIdsByCodes(codes: string[]): Promise<Map<string, string>> {
+  const supabase = createClient();
+  const result = new Map<string, string>();
+  for (let i = 0; i < codes.length; i += ID_CHUNK) {
+    const { data } = await supabase
+      .from("assets")
+      .select("id, asset_code")
+      .in("asset_code", codes.slice(i, i + ID_CHUNK))
+      .is("deleted_at", null)
+      .returns<{ id: string; asset_code: string }[]>();
+    for (const row of data ?? []) {
+      result.set(row.asset_code.toLowerCase(), row.id);
+    }
+  }
+  return result;
 }

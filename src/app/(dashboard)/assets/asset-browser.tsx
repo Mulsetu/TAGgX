@@ -12,6 +12,7 @@ import {
   List,
   MapPin,
   Plus,
+  QrCode,
   Search,
   SlidersHorizontal,
   X,
@@ -22,8 +23,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { downloadQrLabelsPdf } from "@/components/assets/qr-labels-pdf";
 import { mediaSrc } from "@/lib/media-url";
-import type { AssetListItem, AssetOption, ConditionOption } from "@/modules/assets/types";
+import { getQrLabelsAction } from "@/modules/assets/actions";
+import { QR_LABEL_LIMIT, type AssetListItem, type AssetOption, type ConditionOption } from "@/modules/assets/types";
 
 interface AssetBrowserProps {
   items: AssetListItem[];
@@ -33,6 +36,7 @@ interface AssetBrowserProps {
   assetCount: number;
   assetLimit: number | null;
   canCreate: boolean;
+  canGenerateQr: boolean;
   atLimit: boolean;
   categories: AssetOption[];
   locations: AssetOption[];
@@ -107,6 +111,7 @@ export function AssetBrowser({
   assetCount,
   assetLimit,
   canCreate,
+  canGenerateQr,
   atLimit,
   categories,
   locations,
@@ -126,6 +131,8 @@ export function AssetBrowser({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draft, setDraft] = useState<MoreDraft>(() => readDraft(searchParams));
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [qrBusy, setQrBusy] = useState(false);
+  const [qrMessage, setQrMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     setQuery(urlQuery);
@@ -207,6 +214,38 @@ export function AssetBrowser({
     URL.revokeObjectURL(url);
   }
 
+  async function generateQrPdf(scope: "selected" | "all") {
+    if (qrBusy) return;
+    setQrBusy(true);
+    setQrMessage({ tone: "info", text: "Preparing QR codes..." });
+    try {
+      const result = await getQrLabelsAction(
+        scope === "selected"
+          ? { assetIds: Array.from(selected) }
+          : { searchParams: Object.fromEntries(searchParams.entries()) },
+      );
+      if (result.error || !result.labels) {
+        setQrMessage({ tone: "error", text: result.error ?? "Could not generate QR codes." });
+        return;
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      await downloadQrLabelsPdf(result.labels, `asset-qr-codes-${stamp}.pdf`, (done, total) => {
+        setQrMessage({ tone: "info", text: `Building PDF... ${done} of ${total}` });
+      });
+      setQrMessage({
+        tone: "info",
+        text: result.truncated
+          ? `Downloaded ${result.labels.length} QR codes — the first ${QR_LABEL_LIMIT.toLocaleString("en-IN")}. Narrow the filters to print the rest.`
+          : `Downloaded ${result.labels.length} QR code${result.labels.length === 1 ? "" : "s"}.`,
+      });
+      router.refresh();
+    } catch (error) {
+      setQrMessage({ tone: "error", text: error instanceof Error ? error.message : "Could not build the PDF." });
+    } finally {
+      setQrBusy(false);
+    }
+  }
+
   function openFilters() {
     setDraft(readDraft(searchParams));
     setFiltersOpen(true);
@@ -267,6 +306,29 @@ export function AssetBrowser({
               <DropdownMenuItem onSelect={exportCsv}>Export CSV</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {canGenerateQr ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={qrBusy || totalCount === 0}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-60"
+                >
+                  <QrCode className="size-4" />
+                  {qrBusy ? "Generating..." : "QR codes"}
+                  <ChevronDown className="size-4 text-slate-400" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-white text-slate-900">
+                <DropdownMenuItem disabled={selected.size === 0} onSelect={() => void generateQrPdf("selected")}>
+                  {selected.size > 0 ? `PDF for ${selected.size} selected` : "PDF for selected (select assets first)"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void generateQrPdf("all")}>
+                  {hasFilters ? "PDF for all matching" : "PDF for all"} ({Math.min(totalCount, QR_LABEL_LIMIT).toLocaleString("en-IN")})
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           {canCreate && atLimit ? (
             <Link
               href="/dashboard/administration/settings"
@@ -285,6 +347,15 @@ export function AssetBrowser({
           ) : null}
         </div>
       </div>
+
+      {qrMessage ? (
+        <p
+          role={qrMessage.tone === "error" ? "alert" : "status"}
+          className={`text-sm ${qrMessage.tone === "error" ? "text-destructive" : "text-slate-600"}`}
+        >
+          {qrMessage.text}
+        </p>
+      ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <label className="relative block">

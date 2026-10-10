@@ -181,3 +181,8 @@ export const replacementSchema = z.preprocess(
   (value) => (value === "" || value === null || value === undefined ? undefined : value),
   z.string().uuid().optional(),
 );
+
+export const reorderCategoryFieldsSchema = z.object({
+  categoryId: z.string().uuid(),
+  ids: z.array(z.string().uuid()).min(1).max(200),
+});

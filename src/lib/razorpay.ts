@@ -113,6 +113,28 @@ export async function createRazorpaySubscription(input: {
   }
 }
 
+/** Razorpay's own lifecycle status ("created" = nothing paid or authorised yet). */
+export async function fetchRazorpaySubscriptionStatus(
+  subscriptionId: string,
+): Promise<{ status: string } | { error: string }> {
+  try {
+    const subscription = await getClient().subscriptions.fetch(subscriptionId);
+    return { status: String(subscription.status) };
+  } catch (error) {
+    return { error: razorpayMessage(error) };
+  }
+}
+
+/** Cancels immediately (not at cycle end) — for a checkout that was never paid. */
+export async function cancelRazorpaySubscriptionNow(subscriptionId: string): Promise<{ error: string } | { ok: true }> {
+  try {
+    await getClient().subscriptions.cancel(subscriptionId, false);
+    return { ok: true };
+  } catch (error) {
+    return { error: razorpayMessage(error) };
+  }
+}
+
 /**
  * Stops renewal at the end of the paid cycle (Razorpay keeps the customer
  * active until then and sends subscription.cancelled, which the webhook

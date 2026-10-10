@@ -24,6 +24,7 @@ import {
   deleteCategory,
   deleteCategoryField,
   reassignCategoryAssets,
+  reorderCategoryFields,
   replaceRequiredDocuments,
   updateCategory,
   updateCategoryField,
@@ -33,6 +34,7 @@ import {
   categoryFieldIdSchema,
   categoryFormSchema,
   MAX_FIELDS_PER_CATEGORY,
+  reorderCategoryFieldsSchema,
   replacementSchema,
 } from "./validation";
 import type {
@@ -320,6 +322,24 @@ export async function deleteCategoryFieldAction(id: string): Promise<{ error: st
   }
 
   const result = await deleteCategoryField(idParsed.data);
+  revalidatePath(FIELDS_PATH);
+  revalidatePath("/assets");
+  return result;
+}
+
+/** Drag-to-reorder on the Asset fields page; the order is the one the asset form shows. */
+export async function reorderCategoryFieldsAction(categoryId: string, ids: string[]): Promise<{ error: string | null }> {
+  if (!(await requireWritableTenant())) {
+    return { error: TENANT_READ_ONLY_MESSAGE };
+  }
+  if (!(await requireModule("custom_fields")) || !(await requirePermission("categories", "edit"))) {
+    return { error: "You don't have permission to edit fields." };
+  }
+  const parsed = reorderCategoryFieldsSchema.safeParse({ categoryId, ids });
+  if (!parsed.success) {
+    return { error: "Invalid order." };
+  }
+  const result = await reorderCategoryFields(parsed.data.categoryId, parsed.data.ids);
   revalidatePath(FIELDS_PATH);
   revalidatePath("/assets");
   return result;

@@ -11,7 +11,6 @@ import {
   Package,
   Settings,
   SlidersHorizontal,
-  Store,
   Wrench,
 } from "lucide-react";
 import {
@@ -89,7 +88,9 @@ export function AppSidebar({
   const isVendor = Boolean(user?.vendorId);
   const isPathActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const isUsersAndRolesActive =
-    isPathActive("/dashboard/administration/users") || isPathActive("/dashboard/administration/roles");
+    isPathActive("/dashboard/administration/users") ||
+    isPathActive("/dashboard/administration/roles") ||
+    isPathActive("/dashboard/administration/vendors");
   const isCatalogActive =
     isUsersAndRolesActive || adminNav.catalogSections.some((section) => isPathActive(section.href));
   const [adminOpen, setAdminOpen] = useState(isCatalogActive);
@@ -150,15 +151,6 @@ export function AppSidebar({
                 />
               ) : null}
 
-              {adminNav.vendors ? (
-                <SidebarLink
-                  href={adminNav.vendors.href}
-                  label="Vendors"
-                  icon={<Store />}
-                  active={isPathActive(adminNav.vendors.href)}
-                />
-              ) : null}
-
               {adminNav.maintenance ? (
                 <SidebarLink
                   href={adminNav.maintenance.href}
@@ -206,7 +198,7 @@ export function AppSidebar({
                           <SidebarMenuSubButton
                             asChild
                             isActive={
-                              section.module === "users" || section.module === "roles"
+                              section.module === "users" || section.module === "roles" || section.module === "vendors"
                                 ? isUsersAndRolesActive
                                 : isPathActive(section.href)
                             }

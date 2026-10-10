@@ -8,8 +8,6 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { FEATURE_MODULE_DESCRIPTIONS, FEATURE_MODULE_LABELS, FEATURE_MODULES, type FeatureModule } from "@/lib/permissions/feature-catalog";
 import {
-  ASSET_FIELD_KEYS,
-  ASSET_FIELD_LABELS,
   DASHBOARD_WIDGET_KEYS,
   DASHBOARD_WIDGET_LABELS,
   WORKFLOW_DESCRIPTIONS,
@@ -340,66 +338,6 @@ export function WorkspaceDetailsForm({ settings }: { settings: CompanyWorkspaceS
         />
       </div>
       <SaveBar state={state} isPending={isPending} label="Save workspace" />
-    </form>
-  );
-}
-
-export function BuiltinFieldsForm({ settings }: { settings: CompanyWorkspaceSettings }) {
-  const { state, isPending, handleSubmit } = useSettingsForm();
-
-  return (
-    <form action={handleSubmit} className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5">
-      <input type="hidden" name="intent" value="fields" />
-      <div>
-        <h2 className="text-base font-semibold text-slate-900">Built-in fields</h2>
-        <p className="text-sm text-slate-500">
-          Hide, rename, or require fields that already exist on every asset. Name, category, location, and status stay required.
-        </p>
-      </div>
-      <div className="overflow-x-auto rounded-lg border border-slate-200">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-left text-xs text-slate-500">
-              <th className="p-2">Field</th>
-              <th className="p-2">Label</th>
-              <th className="p-2">On</th>
-              <th className="p-2">Required</th>
-              <th className="p-2">Order</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ASSET_FIELD_KEYS.map((key) => {
-              const field = settings.assetFieldConfig[key];
-              return (
-                <tr key={key} className="border-b last:border-0">
-                  <td className="p-2 text-slate-500">{ASSET_FIELD_LABELS[key]}</td>
-                  <td className="p-2">
-                    <Input name={`field_label_${key}`} defaultValue={field?.label ?? ASSET_FIELD_LABELS[key]} />
-                  </td>
-                  <td className="p-2">
-                    <input type="checkbox" name={`field_enabled_${key}`} defaultChecked={field?.enabled !== false} />
-                  </td>
-                  <td className="p-2">
-                    <input type="checkbox" name={`field_required_${key}`} defaultChecked={field?.required === true} />
-                  </td>
-                  <td className="p-2">
-                    <Input
-                      name={`field_order_${key}`}
-                      type="number"
-                      className="w-20"
-                      defaultValue={field?.order ?? 0}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <SaveNote state={state} />
-      <Button type="submit" disabled={isPending} className="self-start">
-        {isPending ? "Saving..." : "Save built-in fields"}
-      </Button>
     </form>
   );
 }

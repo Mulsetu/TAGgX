@@ -357,3 +357,64 @@ export async function insertQrEvent(params: {
     actor_id: params.actorId,
   });
 }
+
+const QR_ID_CHUNK = 150;
+
+/**
+ * Bulk QR: stamps qr_generated_at on the assets that never had one (the
+ * tag URL is the asset id, so an existing code stays valid) and returns
+ * the ids that were newly stamped.
+ */
+export async function markQrGeneratedForAssets(ids: string[]): Promise<string[]> {
+  const supabase = createClient();
+  const now = new Date().toISOString();
+  const stamped: string[] = [];
+  for (let i = 0; i < ids.length; i += QR_ID_CHUNK) {
+    const { data } = await supabase
+      .from("assets")
+      .update({ qr_generated_at: now })
+      .in("id", ids.slice(i, i + QR_ID_CHUNK))
+      .is("qr_generated_at", null)
+      .select("id")
+      .returns<{ id: string }[]>();
+    stamped.push(...(data ?? []).map((row) => row.id));
+  }
+  return stamped;
+}
+
+export async function insertQrEvents(
+  rows: { companyId: string; assetId: string; eventType: "generated" | "printed"; actorId: string | null }[],
+): Promise<void> {
+  const supabase = createClient();
+  for (let i = 0; i < rows.length; i += 500) {
+    await supabase.from("qr_events").insert(
+      rows.slice(i, i + 500).map((row) => ({
+        company_id: row.companyId,
+        asset_id: row.assetId,
+        event_type: row.eventType,
+        actor_id: row.actorId,
+      })),
+    );
+  }
+}
+
+/** Records a finished CSV import (with its error report) for the activity trail. */
+export async function insertImportJob(params: {
+  companyId: string;
+  createdBy: string | null;
+  totalRows: number;
+  successCount: number;
+  errorCount: number;
+  errorReport: string | null;
+}): Promise<void> {
+  const supabase = createClient();
+  await supabase.from("import_jobs").insert({
+    company_id: params.companyId,
+    created_by: params.createdBy,
+    status: "completed",
+    total_rows: params.totalRows,
+    success_count: params.successCount,
+    error_count: params.errorCount,
+    error_report: params.errorReport,
+  });
+}

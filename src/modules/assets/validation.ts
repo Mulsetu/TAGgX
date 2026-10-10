@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ASSET_CRITICALITIES, ASSET_LIST_SORTS, OWNERSHIP_TYPES } from "./types";
+import { ASSET_CRITICALITIES, ASSET_LIST_SORTS, OWNERSHIP_TYPES, QR_LABEL_LIMIT } from "./types";
 
 // FormData gives every field as a string (or null when absent). These
 // helpers normalize "" to "not provided" before the real check runs.
@@ -101,3 +101,12 @@ export const publicAssetReportSchema = z.object({
   email: z.preprocess(emptyToUndefined, z.string().trim().email("Enter a valid email").max(320).optional()),
   message: z.string().trim().min(1, "Describe the issue").max(500),
 });
+
+export const qrLabelsRequestSchema = z
+  .object({
+    assetIds: z.array(z.string().uuid()).min(1).max(QR_LABEL_LIMIT).optional(),
+    searchParams: z.record(z.string(), z.string()).optional(),
+  })
+  .refine((data) => Boolean(data.assetIds) !== Boolean(data.searchParams), {
+    message: "Choose assets or a filter, not both.",
+  });

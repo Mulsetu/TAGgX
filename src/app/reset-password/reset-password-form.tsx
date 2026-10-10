@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -11,34 +11,19 @@ import type { ResetPasswordState } from "@/modules/users/types";
 const initialState: ResetPasswordState = { success: false, error: null };
 
 /**
- * The recovery access/refresh tokens Supabase puts in the emailed link
- * live in the URL *fragment* (`#access_token=...`), which never reaches
- * the server — has to be read here, client-side, then handed to the
- * updatePasswordAction Server Action to actually apply.
+ * The one-time recovery token comes from the Brevo email's link
+ * (`?token_hash=`). It is only redeemed when this form is submitted, so
+ * opening the link — or a mail scanner prefetching it — doesn't use it up.
  */
-export function ResetPasswordForm({ redirectPath }: { redirectPath: string }) {
+export function ResetPasswordForm({ redirectPath, tokenHash }: { redirectPath: string; tokenHash: string }) {
   const router = useRouter();
-  const [tokens, setTokens] = useState<{ accessToken: string; refreshToken: string } | null>(null);
-  const [tokenError, setTokenError] = useState(false);
   const [state, setState] = useState<ResetPasswordState>(initialState);
   const [isPending, startTransition] = useTransition();
 
-  useEffect(() => {
-    const hash = new URLSearchParams(window.location.hash.slice(1));
-    const accessToken = hash.get("access_token");
-    const refreshToken = hash.get("refresh_token");
-    if (accessToken && refreshToken) {
-      setTokens({ accessToken, refreshToken });
-    } else {
-      setTokenError(true);
-    }
-  }, []);
-
   function handleSubmit(formData: FormData) {
-    if (!tokens) return;
-
+    formData.set("tokenHash", tokenHash);
     startTransition(async () => {
-      const result = await updatePasswordAction(tokens.accessToken, tokens.refreshToken, initialState, formData);
+      const result = await updatePasswordAction(initialState, formData);
       setState(result);
       if (result.success) {
         setTimeout(() => router.push(redirectPath), 1500);
@@ -46,7 +31,7 @@ export function ResetPasswordForm({ redirectPath }: { redirectPath: string }) {
     });
   }
 
-  if (tokenError) {
+  if (!tokenHash) {
     return (
       <p className="max-w-sm text-center text-sm text-destructive">
         This reset link is invalid or has expired. Request a new one from the login page.
@@ -83,7 +68,7 @@ export function ResetPasswordForm({ redirectPath }: { redirectPath: string }) {
           {state.error}
         </p>
       ) : null}
-      <Button type="submit" className="w-full" disabled={isPending || !tokens}>
+      <Button type="submit" className="w-full" disabled={isPending}>
         {isPending ? "Updating..." : "Update password"}
       </Button>
     </form>

@@ -47,7 +47,6 @@ export interface SidebarAdminNav {
   maintenance: AdminSection | null;
   audits: AdminSection | null;
   settings: AdminSection | null;
-  vendors: AdminSection | null;
   reports: AdminSection | null;
   catalogSections: AdminSection[];
 }
@@ -59,7 +58,10 @@ export async function getSidebarAdminNav(): Promise<SidebarAdminNav> {
     requirePermission("assets", "view"),
   ]);
   const byHref = new Map(visible.map((section) => [section.href, section]));
-  const usersAndRoles = visible.find((section) => section.module === "users" || section.module === "roles");
+  // Vendors is a tab on Users & Roles, so it alone is enough to show the entry.
+  const usersAndRoles = visible.find(
+    (section) => section.module === "users" || section.module === "roles" || section.module === "vendors",
+  );
   const settings = byHref.get("/dashboard/administration/settings") ?? null;
   const assetFields =
     byHref.get("/dashboard/administration/fields") ??
@@ -72,7 +74,6 @@ export async function getSidebarAdminNav(): Promise<SidebarAdminNav> {
     maintenance: byHref.get("/dashboard/administration/maintenance") ?? null,
     audits: byHref.get("/dashboard/administration/audits") ?? null,
     settings,
-    vendors: byHref.get("/dashboard/administration/vendors") ?? null,
     reports: byHref.get("/dashboard/administration/reports") ?? null,
     catalogSections: [
       usersAndRoles ? { title: "Users & Roles", href: usersAndRoles.href, module: usersAndRoles.module } : null,

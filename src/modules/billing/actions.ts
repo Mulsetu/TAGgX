@@ -71,10 +71,12 @@ import {
   confirmSubscriptionPayment,
   createExtraAssetCheckout,
   createSubscriptionCheckout,
+  discardUnpaidSignupSubscription,
   processRazorpayWebhook,
   syncPlanToRazorpay,
 } from "./payments";
 import type {
+  AbandonCheckoutState,
   AssignPlanState,
   BillingActionState,
   BillingOrder,
@@ -118,6 +120,9 @@ function quotaFrom(
 }
 
 const GIB = 1024 * 1024 * 1024;
+
+/** How long after signup an unpaid self-serve workspace may still be discarded. */
+const SIGNUP_ABANDON_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function readPlanForm(formData: FormData) {
   const allModules = formData.get("allModules") === "on";
@@ -690,13 +695,68 @@ export async function createWorkspaceForCurrentUserAction(
     customerName: profile?.fullName ?? parsed.data.name,
   });
   if ("error" in checkout) {
-    return {
-      error: "Your payment could not be completed. Your workspace has been saved. You can retry payment or contact support.",
-      redirectPath: "/dashboard",
-    };
+    // A paid plan is purchased before the workspace exists for real: if
+    // checkout can't even start, don't leave an unpaid company behind.
+    await rollback();
+    cookies().delete(TENANT_SLUG_COOKIE);
+    return { error: `We couldn't start the payment: ${checkout.error}` };
   }
 
   return { error: null, checkout: checkout.checkout, redirectPath: "/dashboard" };
+}
+
+/**
+ * Onboarding checkout was closed or failed. If Razorpay confirms nothing
+ * was paid, cancel the subscription and remove the just-created workspace
+ * so the user stays on /onboarding and can pay again — a paid plan never
+ * leaves a company that wasn't paid for. Anything uncertain keeps the
+ * workspace (read-only, payable from Settings → Billing).
+ */
+export async function abandonSignupCheckoutAction(): Promise<AbandonCheckoutState> {
+  const ip = clientIpFromHeaders(headers());
+  if (!consumeRateLimit(`onboarding-abandon:${ip}`, 10, 60 * 60 * 1000)) {
+    return { discarded: false, redirectPath: "/dashboard" };
+  }
+
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { discarded: false, redirectPath: "/signup" };
+  }
+
+  const profile = await getUserWithRole(user.id);
+  const companyId = profile?.companyId;
+  if (!companyId || !profile.isCompanyAdmin) {
+    return { discarded: false, redirectPath: "/dashboard" };
+  }
+
+  const subscription = await getSubscriptionForCompany(companyId);
+  const justCreated =
+    subscription !== null && Date.now() - new Date(subscription.startsAt).getTime() < SIGNUP_ABANDON_WINDOW_MS;
+  if (
+    !subscription?.razorpaySubscriptionId ||
+    subscription.status !== "pending_payment" ||
+    subscription.subscriptionType !== "self_service" ||
+    !justCreated
+  ) {
+    return { discarded: false, redirectPath: "/dashboard" };
+  }
+
+  if (!(await discardUnpaidSignupSubscription(subscription.razorpaySubscriptionId))) {
+    return { discarded: false, redirectPath: "/dashboard" };
+  }
+
+  // Detach before delete: users.company_id cascades on company delete.
+  await detachUserFromCompany(user.id);
+  const deleted = await deleteCompany(companyId);
+  if ("error" in deleted) {
+    return { discarded: false, redirectPath: "/dashboard" };
+  }
+  cookies().delete(TENANT_SLUG_COOKIE);
+  revalidatePath("/admin");
+  return { discarded: true };
 }
 
 export async function confirmSignupPaymentAction(
