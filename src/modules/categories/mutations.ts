@@ -220,3 +220,14 @@ export async function reassignCategoryAssets(fromId: string, toId: string): Prom
   const { error } = await supabase.from("assets").update({ category_id: toId }).eq("category_id", fromId);
   return { error: error ? "Could not move the assets to the new category." : null };
 }
+
+/** Saves a category's field order; scoped to that category so ids from elsewhere do nothing. */
+export async function reorderCategoryFields(categoryId: string, ids: string[]): Promise<{ error: string | null }> {
+  const supabase = createClient();
+  const results = await Promise.all(
+    ids.map((id, index) =>
+      supabase.from("category_fields").update({ sort_order: index }).eq("id", id).eq("category_id", categoryId),
+    ),
+  );
+  return { error: results.some((result) => result.error) ? "Could not save the new order." : null };
+}

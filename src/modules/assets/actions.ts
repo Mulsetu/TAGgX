@@ -11,7 +11,8 @@ import { TENANT_HEADERS } from "@/lib/tenant";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { requirePermission } from "@/lib/permissions/has-permission";
 import { getWorkspaceRuntime, requireModule } from "@/lib/permissions/features";
-import { ASSET_FIELD_KEYS, parseAssetFieldConfig } from "@/lib/permissions/workspace-config";
+import { ASSET_FIELD_KEYS, parseAssetFieldConfig, type AssetFieldKey } from "@/lib/permissions/workspace-config";
+import { parseCsv, toCsv } from "@/lib/csv";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import {
@@ -26,6 +27,9 @@ import {
   getPublicAssetById,
   listAssetLocationHistory,
   getCreatedAssetTrendPercent,
+  getAssetIdsByCodes,
+  getAssetImportReferences,
+  listAssetQrLabels,
   listAssets,
   listChildAssets,
   listRecentAssets,
@@ -39,7 +43,10 @@ import {
   deleteAssetDocument,
   generateAssetCode,
   insertQrEvent,
+  insertImportJob,
+  insertQrEvents,
   markQrGenerated,
+  markQrGeneratedForAssets,
   recordAssetLocationMove,
   restoreAsset,
   setAssetArchived,
@@ -50,18 +57,27 @@ import { createPublicTicket } from "@/modules/maintenance/mutations";
 import { countRecentPublicReports } from "@/modules/maintenance/queries";
 import { getUserWithRole } from "@/modules/users/queries";
 import { deleteFilesFromR2, uploadFileToR2 } from "@/modules/storage/mutations";
-import { assetFormSchema, assetListQuerySchema, publicAssetIdSchema, publicAssetReportSchema } from "./validation";
+import {
+  assetFormSchema,
+  assetListQuerySchema,
+  publicAssetIdSchema,
+  publicAssetReportSchema,
+  qrLabelsRequestSchema,
+} from "./validation";
 import { getCategoryFieldsForAssetForm, getCategoryFieldsForCategory, getCategoryPrefixForAsset } from "@/modules/categories/actions";
 import { getVendorOptions } from "@/modules/vendors/actions";
 import { getVendorById } from "@/modules/vendors/queries";
 import { getLocationPath } from "@/modules/locations/actions";
 import { assertCanCreateAsset } from "@/modules/billing/actions";
 import { parseCategoryFieldValues } from "@/modules/categories/validation";
-import type { CustomFieldValue } from "@/modules/categories/types";
+import type { CategoryField, CustomFieldValue } from "@/modules/categories/types";
 import type {
   Asset,
   AssetAttachment,
   AssetFormOptions,
+  AssetImportColumn,
+  AssetImportState,
+  AssetImportTemplate,
   AssetFormState,
   AssetListResult,
   AssetLocationMove,
@@ -70,8 +86,17 @@ import type {
   LocationAssetCount,
   PublicAsset,
   PublicAssetReportState,
+  QrLabel,
+  QrLabelsState,
   StatusAssetCount,
   TagPageViewer,
+} from "./types";
+import {
+  ASSET_IMPORT_COLUMNS,
+  ASSET_IMPORT_ROW_LIMIT,
+  CUSTOM_IMPORT_PREFIX,
+  PARTNER_NAME_IMPORT_COLUMN,
+  QR_LABEL_LIMIT,
 } from "./types";
 
 const EMPTY_ASSET_LIST: AssetListResult = { items: [], totalCount: 0, page: 1, pageSize: 25 };
@@ -754,6 +779,89 @@ export async function markQrGeneratedAction(assetId: string): Promise<{ error: s
 }
 
 /**
+ * Bulk QR labels: the selected assets, or every asset matching the list
+ * page's current filters (up to QR_LABEL_LIMIT). Stamps assets that never
+ * had a QR as generated and logs a "printed" event for each label; the PDF
+ * itself is drawn in the browser from the returned names and codes.
+ */
+export async function getQrLabelsAction(input: {
+  assetIds?: string[];
+  searchParams?: Record<string, string>;
+}): Promise<QrLabelsState> {
+  if (!(await requireWritableTenant())) {
+    return { error: TENANT_READ_ONLY_MESSAGE };
+  }
+  if (!(await requireModule("qr")) || !(await requirePermission("assets", "edit"))) {
+    return { error: "You don't have permission to generate QR tags." };
+  }
+
+  const companyId = getCompanyIdFromHeaders();
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!companyId || !user) {
+    return { error: "Could not determine your company." };
+  }
+  if (!consumeRateLimit(`qr-bulk:${user.id}`, 30, 60 * 60 * 1000)) {
+    return { error: "Too many QR downloads. Try again later." };
+  }
+
+  const parsed = qrLabelsRequestSchema.safeParse(input);
+  if (!parsed.success) {
+    return { error: "Choose at least one asset." };
+  }
+
+  let labels: QrLabel[];
+  let truncated = false;
+  if (parsed.data.assetIds) {
+    labels = await listAssetQrLabels(parsed.data.assetIds);
+  } else {
+    const raw = parsed.data.searchParams ?? {};
+    const filters = assetListQuerySchema.safeParse({
+      q: raw.q,
+      categoryId: raw.category,
+      locationId: raw.location,
+      statusId: raw.status,
+      vendorId: raw.vendor,
+      allottedTo: raw.custodian,
+      condition: raw.condition,
+      warranty: raw.warranty,
+      amc: raw.amc,
+      documentExpiry: raw.docs,
+      sort: raw.sort ?? "code",
+      sortDir: raw.dir ?? "asc",
+      includeArchived: raw.archived,
+    });
+    if (!filters.success) {
+      return { error: "Those filters aren't valid. Clear them and try again." };
+    }
+    const result = await listAssets(filters.data, 1, QR_LABEL_LIMIT);
+    labels = result.items.map((item) => ({ id: item.id, name: item.name, assetCode: item.assetCode }));
+    truncated = result.totalCount > labels.length;
+  }
+
+  if (labels.length === 0) {
+    return { error: "No assets to generate QR codes for." };
+  }
+
+  const ids = labels.map((label) => label.id);
+  const stamped = await markQrGeneratedForAssets(ids);
+  await insertQrEvents([
+    ...stamped.map((assetId) => ({ companyId, assetId, eventType: "generated" as const, actorId: user.id })),
+    ...ids.map((assetId) => ({ companyId, assetId, eventType: "printed" as const, actorId: user.id })),
+  ]);
+  await writeAuditLog({
+    action: "asset.qr_bulk_generated",
+    entityType: "asset",
+    newValues: { labels: labels.length, newlyGenerated: stamped.length },
+  });
+
+  revalidatePath("/assets");
+  return { error: null, labels, truncated };
+}
+
+/**
  * Permanently deletes an asset and everything tied to it: attachments
  * (DB + R2), maintenance tickets (cascade), and any other asset's
  * linked_asset_id pointer (set null). Image files in R2 are removed too.
@@ -957,4 +1065,373 @@ function flattenIssues(error: ZodError): Record<string, string> {
     }
   }
   return fieldErrors;
+}
+
+// ---------------------------------------------------------------------
+// CSV import
+// ---------------------------------------------------------------------
+
+const CORE_IMPORT_COLUMNS = ["name", "category", "location", "status"] as const;
+
+function sampleCustomValue(field: CategoryField): string {
+  switch (field.fieldType) {
+    case "number":
+      return "10";
+    case "date":
+      return "2026-01-31";
+    case "select":
+      return field.options[0] ?? "";
+    case "checkbox":
+      return "yes";
+    case "email":
+      return "name@example.com";
+    case "url":
+      return "https://example.com";
+    case "phone":
+      return "+91 98765 43210";
+    default:
+      return "";
+  }
+}
+
+function customFieldHint(field: CategoryField): string | undefined {
+  if (field.fieldType === "select") return `One of: ${field.options.join(", ")}`;
+  if (field.fieldType === "checkbox") return "yes or no";
+  if (field.fieldType === "date") return "YYYY-MM-DD";
+  return undefined;
+}
+
+/**
+ * Columns the add-asset import can take, for the picker on /assets/new:
+ * name/category/location/status plus every built-in field the company has
+ * marked required are always in the sample; other enabled fields and the
+ * category custom fields are opt-in.
+ */
+export async function getAssetImportTemplateAction(): Promise<AssetImportTemplate> {
+  const empty: AssetImportTemplate = { core: [], fields: [], categories: [] };
+  if (!(await requireModule("assets")) || !(await requirePermission("assets", "create"))) {
+    return empty;
+  }
+
+  const [runtime, refs, customFields] = await Promise.all([
+    getWorkspaceRuntime(),
+    getAssetImportReferences(),
+    getCategoryFieldsForAssetForm(),
+  ]);
+
+  const core: AssetImportColumn[] = [
+    { column: "name", label: "Name", example: "Sample laptop", required: true },
+    { column: "category", label: "Category", example: refs.categories[0]?.name ?? "Your category", required: true },
+    { column: "location", label: "Location", example: refs.locations[0]?.name ?? "Your location", required: true },
+    { column: "status", label: "Status", example: refs.statuses[0]?.name ?? "Your status", required: true },
+  ];
+
+  const examples: Partial<Record<AssetFieldKey, string>> = {
+    condition: refs.conditions[0]?.key ?? "good",
+    department: runtime.departments[0] ?? "",
+    vendorId: refs.vendors[0]?.name ?? "",
+  };
+  const fields: AssetImportColumn[] = [];
+  const enabledKeys = ASSET_FIELD_KEYS.filter((key) => runtime.fields[key].enabled).sort(
+    (a, b) => runtime.fields[a].order - runtime.fields[b].order,
+  );
+  for (const key of enabledKeys) {
+    const spec = ASSET_IMPORT_COLUMNS[key];
+    const setting = runtime.fields[key];
+    fields.push({
+      column: spec.column,
+      label: setting.label,
+      example: examples[key] ?? spec.example,
+      hint: spec.hint,
+      required: setting.required,
+    });
+    if (key === "ownershipType") {
+      fields.push({
+        column: PARTNER_NAME_IMPORT_COLUMN,
+        label: "Partner name",
+        example: "",
+        hint: "Required when ownership is partner",
+        required: false,
+      });
+    }
+  }
+
+  const categoryNames = new Map(refs.categories.map((category) => [category.id, category.name]));
+  const grouped = new Map<string, AssetImportColumn[]>();
+  for (const field of customFields) {
+    const name = categoryNames.get(field.categoryId);
+    if (!name) continue;
+    grouped.set(name, [
+      ...(grouped.get(name) ?? []),
+      {
+        column: `${CUSTOM_IMPORT_PREFIX}${field.key}`,
+        label: field.label,
+        example: sampleCustomValue(field),
+        hint: customFieldHint(field),
+        required: field.required,
+      },
+    ]);
+  }
+
+  return {
+    core,
+    fields,
+    categories: Array.from(grouped.entries()).map(([categoryName, columns]) => ({ categoryName, columns })),
+  };
+}
+
+/**
+ * Reads this row's `custom_<key>` columns for its category's fields and
+ * validates them exactly like the asset form does.
+ */
+function importCustomFields(
+  record: Map<string, string>,
+  fields: CategoryField[],
+): { values: Record<string, CustomFieldValue> } | { error: string } {
+  const formData = new FormData();
+  for (const field of fields) {
+    let value = record.get(`${CUSTOM_IMPORT_PREFIX}${field.key}`) ?? "";
+    if (field.fieldType === "checkbox") {
+      value = /^(yes|y|true|1|on)$/i.test(value) ? "true" : "";
+    } else if (field.fieldType === "select") {
+      value = field.options.find((option) => option.toLowerCase() === value.toLowerCase()) ?? value;
+    }
+    formData.set(`customField.${field.key}`, value);
+  }
+  const parsed = parseCategoryFieldValues(fields, formData);
+  const messages = Object.values(parsed.fieldErrors);
+  return messages.length > 0 ? { error: messages.join(" ") } : { values: parsed.values };
+}
+
+function byLowerName(options: { id: string; name: string }[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const option of options) {
+    const key = option.name.trim().toLowerCase();
+    if (!map.has(key)) map.set(key, option.id);
+  }
+  return map;
+}
+
+/**
+ * Add-asset CSV import. Each row goes through the same validation as the
+ * asset form (schema, required fields, custom fields, cross-tenant
+ * references); codes come from the category prefix and rows stop at the
+ * plan limit. Bad rows are skipped and returned as an error CSV.
+ */
+export async function importAssetsCsvAction(_prev: AssetImportState, formData: FormData): Promise<AssetImportState> {
+  if (!(await requireWritableTenant())) {
+    return { error: TENANT_READ_ONLY_MESSAGE };
+  }
+  if (!(await requireModule("assets")) || !(await requirePermission("assets", "create"))) {
+    return { error: "You don't have permission to import assets." };
+  }
+  const companyId = getCompanyIdFromHeaders();
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!companyId || !user) {
+    return { error: "Could not determine your company." };
+  }
+  if (!consumeRateLimit(`asset-import:${companyId}`, 20, 60 * 60 * 1000)) {
+    return { error: "Too many imports. Try again later." };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choose a CSV file." };
+  }
+  if (file.size > 2_000_000 || !/\.csv$/i.test(file.name)) {
+    return { error: "Upload a .csv file under 2 MB." };
+  }
+
+  const parsedCsv = parseCsv(await file.text());
+  const header = parsedCsv[0]?.map((column) => column.trim().toLowerCase()) ?? [];
+  const dataRows = parsedCsv.slice(1);
+  const runtime = await getWorkspaceRuntime();
+
+  const requiredColumns = [
+    ...CORE_IMPORT_COLUMNS,
+    ...ASSET_FIELD_KEYS.filter((key) => runtime.fields[key].enabled && runtime.fields[key].required).map(
+      (key) => ASSET_IMPORT_COLUMNS[key].column,
+    ),
+  ];
+  const missing = requiredColumns.filter((column) => !header.includes(column));
+  if (missing.length > 0) {
+    return { error: `The CSV is missing required columns: ${missing.join(", ")}. Download a fresh sample.` };
+  }
+  if (dataRows.length === 0) {
+    return { error: "The CSV has no asset rows." };
+  }
+  if (dataRows.length > ASSET_IMPORT_ROW_LIMIT) {
+    return { error: `Import up to ${ASSET_IMPORT_ROW_LIMIT} assets at a time.` };
+  }
+
+  const records = dataRows.map(
+    (values) => new Map(header.map((column, index) => [column, (values[index] ?? "").trim()])),
+  );
+  const assetCodes = new Set<string>();
+  for (const record of records) {
+    for (const column of ["parent_asset_code", "linked_asset_code"]) {
+      const code = record.get(column);
+      if (code) assetCodes.add(code);
+    }
+  }
+
+  const [refs, customFieldsOn, assetIdsByCode] = await Promise.all([
+    getAssetImportReferences(),
+    requireModule("custom_fields"),
+    getAssetIdsByCodes(Array.from(assetCodes)),
+  ]);
+  const categories = byLowerName(refs.categories);
+  const locations = byLowerName(refs.locations);
+  const statuses = byLowerName(refs.statuses);
+  const vendors = byLowerName(refs.vendors);
+  const users = new Map(refs.users.map((row) => [row.email.toLowerCase(), row.id]));
+  const conditions = new Map<string, string>();
+  for (const condition of refs.conditions) {
+    conditions.set(condition.key.toLowerCase(), condition.key);
+    conditions.set(condition.name.trim().toLowerCase(), condition.key);
+  }
+  const fieldLabel = (key: string) =>
+    (ASSET_FIELD_KEYS as readonly string[]).includes(key) ? runtime.fields[key as AssetFieldKey].label : key;
+
+  const fieldCache = new Map<string, CategoryField[]>();
+  const errors: string[][] = [["line", "name", "error"]];
+  let successCount = 0;
+  let limitMessage: string | null = null;
+
+  for (let i = 0; i < records.length; i += 1) {
+    const record = records[i] ?? new Map<string, string>();
+    const name = record.get("name") ?? "";
+    const line = String(i + 2);
+    const fail = (message: string) => errors.push([line, name, message]);
+
+    if (limitMessage) {
+      fail(limitMessage);
+      continue;
+    }
+
+    const problems: string[] = [];
+    const lookup = (column: string, map: Map<string, string>, label: string): string | undefined => {
+      const value = record.get(column) ?? "";
+      if (!value) return undefined;
+      const id = map.get(value.toLowerCase());
+      if (!id) problems.push(`Unknown ${label} "${value}".`);
+      return id;
+    };
+
+    const raw: Record<string, unknown> = {
+      name,
+      categoryId: lookup("category", categories, "category"),
+      locationId: lookup("location", locations, "location"),
+      statusId: lookup("status", statuses, "status"),
+      ownershipType: "owned",
+      partnerName: record.get(PARTNER_NAME_IMPORT_COLUMN) || undefined,
+    };
+    for (const key of ASSET_FIELD_KEYS) {
+      const column = ASSET_IMPORT_COLUMNS[key].column;
+      const value = record.get(column);
+      if (!value) continue;
+      switch (key) {
+        case "vendorId":
+          raw.vendorId = lookup(column, vendors, "vendor");
+          break;
+        case "allottedTo":
+          raw.allottedTo = lookup(column, users, "user email");
+          break;
+        case "parentAssetId":
+        case "linkedAssetId":
+          raw[key] = lookup(column, assetIdsByCode, "asset code");
+          break;
+        case "condition":
+          raw.condition = lookup(column, conditions, "condition");
+          break;
+        case "ownershipType":
+        case "criticality":
+          raw[key] = value.toLowerCase();
+          break;
+        default:
+          raw[key] = value;
+      }
+    }
+    if (problems.length > 0) {
+      fail(problems.join(" "));
+      continue;
+    }
+
+    const parsed = assetFormSchema.safeParse(raw);
+    if (!parsed.success) {
+      fail(
+        parsed.error.issues
+          .map((issue) => `${fieldLabel(String(issue.path[0] ?? ""))}: ${issue.message}`)
+          .join(" "),
+      );
+      continue;
+    }
+    const configuredErrors = await missingConfiguredFields(parsed.data);
+    if (configuredErrors) {
+      fail(Object.values(configuredErrors).join(" "));
+      continue;
+    }
+    const referenceError = await validateCrossTenantReferences(parsed.data);
+    if (referenceError) {
+      fail(referenceError);
+      continue;
+    }
+
+    let customFields: Record<string, CustomFieldValue> = {};
+    if (customFieldsOn) {
+      let fields = fieldCache.get(parsed.data.categoryId);
+      if (!fields) {
+        fields = await getCategoryFieldsForCategory(parsed.data.categoryId);
+        fieldCache.set(parsed.data.categoryId, fields);
+      }
+      const custom = importCustomFields(record, fields);
+      if ("error" in custom) {
+        fail(custom.error);
+        continue;
+      }
+      customFields = custom.values;
+    }
+
+    const quota = await assertCanCreateAsset();
+    if ("error" in quota) {
+      limitMessage = quota.error;
+      fail(limitMessage);
+      continue;
+    }
+
+    const input = await withVendorName(parsed.data);
+    const assetCode = await generateAssetCode(companyId, await getCategoryPrefixForAsset(parsed.data.categoryId));
+    const result = await createAsset({ companyId, createdBy: user.id, assetCode, input, customFields });
+    if ("error" in result) {
+      fail(result.error);
+      continue;
+    }
+    await recordAssetLocationMove({
+      companyId,
+      assetId: result.id,
+      userId: user.id,
+      fromLocationId: null,
+      toLocationId: parsed.data.locationId,
+      fromLocationPath: null,
+      toLocationPath: await getLocationPath(parsed.data.locationId),
+    });
+    successCount += 1;
+  }
+
+  const errorCount = errors.length - 1;
+  const errorCsv = errorCount > 0 ? toCsv(errors) : null;
+  await insertImportJob({
+    companyId,
+    createdBy: user.id,
+    totalRows: records.length,
+    successCount,
+    errorCount,
+    errorReport: errorCsv,
+  });
+  await writeAuditLog({ action: "assets.imported", entityType: "import_job", newValues: { successCount, errorCount } });
+  revalidatePath("/assets");
+  return { error: null, result: { successCount, errorCount, errorCsv: errorCsv ?? undefined } };
 }

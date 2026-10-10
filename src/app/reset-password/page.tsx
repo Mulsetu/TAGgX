@@ -9,14 +9,17 @@ export const metadata: Metadata = {
 };
 
 interface ResetPasswordPageProps {
-  searchParams: { redirect?: string };
+  searchParams: { redirect?: string; token_hash?: string };
 }
 
 export default function ResetPasswordPage({ searchParams }: ResetPasswordPageProps) {
   // Only ever follow an internal path — never let an open ?redirect=
   // param send someone to an external URL.
   const redirectPath =
-    searchParams.redirect && searchParams.redirect.startsWith("/") ? searchParams.redirect : "/";
+    searchParams.redirect && searchParams.redirect.startsWith("/") && !searchParams.redirect.startsWith("//")
+      ? searchParams.redirect
+      : "/";
+  const tokenHash = typeof searchParams.token_hash === "string" ? searchParams.token_hash : "";
 
   return (
     <AuthShell
@@ -25,7 +28,7 @@ export default function ResetPasswordPage({ searchParams }: ResetPasswordPagePro
       subtitle="Use at least 8 characters."
       showPoweredBy={false}
     >
-      <ResetPasswordForm redirectPath={redirectPath} />
+      <ResetPasswordForm redirectPath={redirectPath} tokenHash={tokenHash} />
     </AuthShell>
   );
 }

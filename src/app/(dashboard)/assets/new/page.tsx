@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { assertModule } from "@/lib/permissions/features";
 import { assertPermission } from "@/lib/permissions/has-permission";
 import { getCurrentCompanyQuota } from "@/modules/billing/actions";
-import { getAssetFormOptionsForForm } from "@/modules/assets/actions";
+import { getAssetFormOptionsForForm, getAssetImportTemplateAction } from "@/modules/assets/actions";
 import { AssetCsvImport } from "../asset-csv-import";
 import { AssetForm } from "../asset-form";
 
@@ -28,7 +28,7 @@ export default async function NewAssetPage() {
     );
   }
 
-  const options = await getAssetFormOptionsForForm();
+  const [options, importTemplate] = await Promise.all([getAssetFormOptionsForForm(), getAssetImportTemplateAction()]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -39,7 +39,7 @@ export default async function NewAssetPage() {
           {quota.remaining === 1 ? "" : "s"} remaining on your plan.
         </p>
       ) : null}
-      <AssetCsvImport />
+      <AssetCsvImport template={importTemplate} />
       <AssetForm mode="create" options={options} />
     </div>
   );

@@ -273,7 +273,7 @@ function LocationDialog({
 
         <div className="rounded-xl border border-slate-200 p-3">
           <p className="text-sm font-medium text-slate-800">
-            {children.length === 0 ? "No child locations" : `${children.length} child location${children.length === 1 ? "" : "s"}`}
+            {children.length === 0 ? "No sub-locations" : `${children.length} sub-location${children.length === 1 ? "" : "s"}`}
           </p>
           {children.length > 0 ? (
             <ul className="mt-2 flex flex-col gap-1 text-sm text-slate-600">
@@ -338,7 +338,7 @@ function LocationDialog({
                   <AlertDialogTitle>Delete {current.name}?</AlertDialogTitle>
                   <AlertDialogDescription>
                     {children.length > 0
-                      ? "Remove its child locations first."
+                      ? "Remove its sub-locations first."
                       : "Assets here become unassigned. Past movement history keeps this name."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -383,7 +383,7 @@ export function LocationList({ locations }: { locations: LocationSummary[] }) {
             <TableRow>
               <TableHead>Location</TableHead>
               <TableHead>Level</TableHead>
-              <TableHead>Children</TableHead>
+              <TableHead>Sub-locations</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

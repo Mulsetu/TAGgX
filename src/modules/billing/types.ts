@@ -218,6 +218,12 @@ export interface AccountSignupState {
   redirectPath?: string;
 }
 
+export interface AbandonCheckoutState {
+  /** True when the unpaid workspace was removed and onboarding can start over. */
+  discarded: boolean;
+  redirectPath?: string;
+}
+
 export interface CreateWorkspaceState {
   error: string | null;
   redirectPath?: string;

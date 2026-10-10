@@ -1,4 +1,4 @@
-import { assertModule } from "@/lib/permissions/features";
+import { assertModule, requireModule } from "@/lib/permissions/features";
 import { assertPermission, requirePermission } from "@/lib/permissions/has-permission";
 import { getCurrentCompanyQuota } from "@/modules/billing/actions";
 import { getAssetFilterOptionsForList, getAssetsForList } from "@/modules/assets/actions";
@@ -11,11 +11,13 @@ interface AssetsPageProps {
 export default async function AssetsPage({ searchParams }: AssetsPageProps) {
   await assertModule("assets");
   await assertPermission("assets", "view");
-  const [list, filterOptions, quota, canCreate] = await Promise.all([
+  const [list, filterOptions, quota, canCreate, qrOn, canEdit] = await Promise.all([
     getAssetsForList(searchParams),
     getAssetFilterOptionsForList(),
     getCurrentCompanyQuota(),
     requirePermission("assets", "create"),
+    requireModule("qr"),
+    requirePermission("assets", "edit"),
   ]);
 
   return (
@@ -27,6 +29,7 @@ export default async function AssetsPage({ searchParams }: AssetsPageProps) {
       assetCount={quota.assetCount}
       assetLimit={quota.effectiveLimit}
       canCreate={canCreate}
+      canGenerateQr={qrOn && canEdit}
       atLimit={quota.atLimit}
       categories={filterOptions.categories}
       locations={filterOptions.locations}

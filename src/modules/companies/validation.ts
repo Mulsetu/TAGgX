@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ASSET_FIELD_KEYS } from "@/lib/permissions/workspace-config";
 
 // Mirrors the CHECK constraint on companies.slug
 // (supabase/migrations/0003_companies.sql). The two alternatives can't
@@ -106,3 +107,11 @@ export const requestDeletionSchema = z.object({
   confirmSlug: z.string().trim(),
 });
 
+export const builtinFieldSchema = z.object({
+  key: z.enum(ASSET_FIELD_KEYS),
+  label: z.string().trim().min(1, "Label is required").max(80),
+  enabled: z.boolean(),
+  required: z.boolean(),
+});
+
+export const builtinFieldOrderSchema = z.array(z.enum(ASSET_FIELD_KEYS)).min(1).max(ASSET_FIELD_KEYS.length);

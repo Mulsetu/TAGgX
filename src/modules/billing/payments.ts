@@ -1,10 +1,12 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import {
+  cancelRazorpaySubscriptionNow,
   createRazorpayCustomer,
   createRazorpayOrder,
   createRazorpayPlan,
   createRazorpaySubscription,
+  fetchRazorpaySubscriptionStatus,
   getRazorpayKeyId,
   isRazorpayConfigured,
   rupeesToPaise,
@@ -157,6 +159,22 @@ export async function createSubscriptionCheckout(input: {
       confirmToken,
     },
   };
+}
+
+/**
+ * Abandoned signup checkout: true only when Razorpay confirms nothing was
+ * paid or authorised on this subscription and it has now been cancelled,
+ * so the caller may safely drop the unpaid workspace. Any other answer
+ * (already authenticated/active, or Razorpay unreachable) is false —
+ * keep the workspace; the webhook or Settings → Billing takes it from there.
+ */
+export async function discardUnpaidSignupSubscription(razorpaySubscriptionId: string): Promise<boolean> {
+  const fetched = await fetchRazorpaySubscriptionStatus(razorpaySubscriptionId);
+  if ("error" in fetched || fetched.status !== "created") {
+    return false;
+  }
+  const cancelled = await cancelRazorpaySubscriptionNow(razorpaySubscriptionId);
+  return !("error" in cancelled);
 }
 
 export async function createExtraAssetCheckout(input: {

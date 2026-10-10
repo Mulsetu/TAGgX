@@ -8,13 +8,10 @@ export default async function VendorsPage() {
   await assertPermission("vendors", "view");
   const vendors = await getVendorsForAdmin();
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Vendors</h1>
-        <p className="text-sm text-muted-foreground">
-          Service partners assigned to assets and maintenance. Vendor logins only see their tickets.
-        </p>
-      </div>
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">
+        Service partners assigned to assets and maintenance. Vendor logins only see their tickets.
+      </p>
       <VendorList vendors={vendors} />
     </div>
   );

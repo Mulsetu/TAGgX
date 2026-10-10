@@ -132,6 +132,56 @@ export async function createCompanyAdminAccount(
 
 export type UserMutationResult = { error: string | null };
 
+export type SignupAccountResult =
+  | { userId: string; tokenHash: string }
+  | { error: "exists" | "failed"; message?: string };
+
+/**
+ * Self-serve signup: creates the (unconfirmed) auth user and returns a
+ * one-time verification token WITHOUT Supabase sending any email — the
+ * caller delivers the link through Brevo. Calling this again for an
+ * address that exists but was never confirmed re-issues a token for that
+ * same user (its password is not changed); a confirmed address is "exists".
+ */
+export async function createSignupAccount(input: {
+  email: string;
+  password: string;
+  fullName: string;
+}): Promise<SignupAccountResult> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.auth.admin.generateLink({
+    type: "signup",
+    email: input.email,
+    password: input.password,
+    options: { data: { full_name: input.fullName } },
+  });
+
+  if (error || !data.user || !data.properties?.hashed_token) {
+    const code = error && "code" in error ? error.code : undefined;
+    const message = (error?.message ?? "").toLowerCase();
+    if (code === "email_exists" || message.includes("already") || message.includes("registered")) {
+      return { error: "exists" };
+    }
+    return { error: "failed", message: error?.message };
+  }
+
+  return { userId: data.user.id, tokenHash: data.properties.hashed_token };
+}
+
+/**
+ * Password reset: a one-time recovery token for this address, WITHOUT
+ * Supabase sending its own email (the caller delivers it through Brevo).
+ * Null when there is no such account — callers must not reveal that.
+ */
+export async function createPasswordRecoveryToken(email: string): Promise<string | null> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.auth.admin.generateLink({ type: "recovery", email });
+  if (error || !data.properties?.hashed_token) {
+    return null;
+  }
+  return data.properties.hashed_token;
+}
+
 export async function insertOnboardingUser(input: {
   userId: string;
   email: string;

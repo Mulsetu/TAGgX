@@ -175,6 +175,75 @@ export async function sendUserInviteEmail(params: UserInviteEmailParams): Promis
 }
 
 // ---------------------------------------------------------------------
+// Self-serve signup: verify email
+// ---------------------------------------------------------------------
+
+export interface SignupVerificationEmailParams {
+  to: string;
+  recipientName?: string;
+  verifyUrl: string;
+}
+
+export async function sendSignupVerificationEmail(
+  params: SignupVerificationEmailParams,
+): Promise<SendEmailResult> {
+  const greeting = params.recipientName ? `Hi ${escapeHtml(params.recipientName)},` : "Hi,";
+
+  const html = renderLayout(
+    "Confirm your email",
+    `<p>${greeting}</p>
+     <p>Thanks for signing up for TagX. Confirm your email address to set up your company workspace and choose your plan.</p>
+     <p>
+       <a href="${params.verifyUrl}" style="display:inline-block;padding:10px 16px;background:${TAGX_TEAL};color:#ffffff;border-radius:6px;text-decoration:none;">
+         Confirm email
+       </a>
+     </p>
+     <p style="font-size: 13px; color: #737373;">Or paste this link into your browser: ${params.verifyUrl}</p>
+     <p style="font-size: 13px; color: #737373;">If you didn't create a TagX account, you can ignore this email.</p>`,
+  );
+
+  return sendTransactionalEmail({
+    to: [{ email: params.to, name: params.recipientName }],
+    subject: "Confirm your email for TagX",
+    htmlContent: html,
+    textContent: `Thanks for signing up for TagX. Confirm your email to continue: ${params.verifyUrl}\n\nIf you didn't create a TagX account, ignore this email.`,
+  });
+}
+
+// ---------------------------------------------------------------------
+// Password reset
+// ---------------------------------------------------------------------
+
+export interface PasswordResetEmailParams {
+  to: string;
+  resetUrl: string;
+}
+
+export async function sendPasswordResetEmail(params: PasswordResetEmailParams): Promise<SendEmailResult> {
+  const html = renderLayout(
+    "Reset your password",
+    `<p>Hi,</p>
+     <p>We received a request to reset the password for your TagX account. This link expires in 1 hour.</p>
+     <p>
+       <a href="${params.resetUrl}" style="display:inline-block;padding:10px 16px;background:${TAGX_TEAL};color:#ffffff;border-radius:6px;text-decoration:none;">
+         Choose a new password
+       </a>
+     </p>
+     <p style="font-size: 13px; color: #737373;">Or paste this link into your browser: ${params.resetUrl}</p>
+     <p style="font-size: 13px; color: #737373;">If you didn't ask for this, you can ignore this email — your password stays the same.</p>`,
+  );
+
+  return sendTransactionalEmail({
+    to: [{ email: params.to }],
+    subject: "Reset your TagX password",
+    htmlContent: html,
+    textContent: `Reset your TagX password (link expires in 1 hour): ${params.resetUrl}
+
+If you didn't ask for this, ignore this email.`,
+  });
+}
+
+// ---------------------------------------------------------------------
 // Storage warning
 // ---------------------------------------------------------------------
 

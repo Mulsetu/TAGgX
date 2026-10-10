@@ -14,13 +14,15 @@ import { getCurrentCompany } from "@/modules/companies/actions";
 import { checkSuperAdmin, isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
-import { sendUserInviteEmail } from "@/lib/email";
+import { sendPasswordResetEmail, sendSignupVerificationEmail, sendUserInviteEmail } from "@/lib/email";
 import { writeAuditLog } from "@/lib/audit-log";
 import { getRequestSiteUrl } from "@/lib/request-origin";
 import { getSiteUrl } from "@/lib/site";
 import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/queries";
 import {
   accountSignupSchema,
+  confirmSignupEmailSchema,
+  signupPlanIdSchema,
   forgotPasswordSchema,
   inviteUserSchema,
   resetPasswordSchema,
@@ -30,6 +32,8 @@ import {
 import { getInviteByToken, getUserWithRole, listCompanyUsers, listPendingInvites } from "./queries";
 import {
   acceptCompanyInvite,
+  createPasswordRecoveryToken,
+  createSignupAccount,
   insertOnboardingUser,
   setUserActive,
   transferCompanyAdmin,
@@ -39,6 +43,7 @@ import type {
   AcceptInviteState,
   AccountSignupState,
   CompanyUserSummary,
+  ConfirmSignupEmailState,
   CurrentUser,
   ForgotPasswordState,
   InviteDetails,
@@ -188,7 +193,9 @@ export async function signInSuperAdmin(formData: FormData): Promise<never> {
 
 /**
  * Public self-serve: create an auth account only. Company, plan, and
- * payment happen after email verification on /onboarding.
+ * payment happen after email verification on /onboarding. The
+ * verification email goes out through Brevo (lib/email.ts) — Supabase
+ * Auth's own mailer is never triggered here.
  */
 export async function signupAccountAction(
   _prevState: AccountSignupState,
@@ -210,8 +217,9 @@ export async function signupAccountAction(
   }
 
   const planIdRaw = formData.get("planId");
-  if (typeof planIdRaw === "string" && planIdRaw.length > 0) {
-    cookies().set("tagx-signup-plan", planIdRaw, {
+  const planId = signupPlanIdSchema.safeParse(planIdRaw).success ? (planIdRaw as string) : null;
+  if (planId) {
+    cookies().set("tagx-signup-plan", planId, {
       path: "/",
       sameSite: "lax",
       httpOnly: true,
@@ -219,26 +227,20 @@ export async function signupAccountAction(
     });
   }
 
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.signUp({
+  const account = await createSignupAccount({
     email: parsed.data.email,
     password: parsed.data.password,
-    options: {
-      emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/onboarding`,
-      data: { full_name: parsed.data.fullName },
-    },
+    fullName: parsed.data.fullName,
   });
-
-  if (error || !data.user) {
-    const message = (error?.message ?? "").toLowerCase();
-    if (message.includes("already") || message.includes("registered")) {
+  if ("error" in account) {
+    if (account.error === "exists") {
       return { error: "An account with this email already exists. Please sign in or reset your password." };
     }
-    return { error: error?.message ?? "Could not create your account." };
+    return { error: account.message ?? "Could not create your account." };
   }
 
   const profile = await insertOnboardingUser({
-    userId: data.user.id,
+    userId: account.userId,
     email: parsed.data.email,
     fullName: parsed.data.fullName,
   });
@@ -246,8 +248,21 @@ export async function signupAccountAction(
     return { error: profile.error };
   }
 
-  if (data.session && data.user.email_confirmed_at) {
-    return { error: null, redirectPath: "/onboarding" };
+  // Our own confirm page, not Supabase's /verify: no redirect allow-list,
+  // no PKCE cookie (works when the link opens in another browser), and a
+  // button press instead of a GET so mail scanners can't burn the token.
+  const verifyParams = new URLSearchParams({ token_hash: account.tokenHash });
+  if (planId) {
+    verifyParams.set("plan", planId);
+  }
+  const verifyUrl = `${getSiteUrl()}/auth/confirm?${verifyParams}`;
+  const sent = await sendSignupVerificationEmail({
+    to: parsed.data.email,
+    recipientName: parsed.data.fullName,
+    verifyUrl,
+  });
+  if ("error" in sent) {
+    return { error: "We couldn't send the verification email. Try again in a few minutes." };
   }
 
   return { error: null, checkEmail: true };
@@ -281,6 +296,47 @@ export async function completeEmailCallbackAction(code: string, nextRaw: string 
   }
 
   return safePostLoginPath(nextRaw ?? undefined) ?? "/onboarding";
+}
+
+/**
+ * /auth/confirm: verifies the token from the Brevo signup email and signs
+ * the user in. Runs on a button press (Server Action), never on page load.
+ */
+export async function confirmSignupEmailAction(
+  _prevState: ConfirmSignupEmailState,
+  formData: FormData,
+): Promise<ConfirmSignupEmailState> {
+  const ip = clientIpFromHeaders(headers());
+  if (!consumeRateLimit(`signup-confirm:${ip}`, 10, 15 * 60 * 1000)) {
+    return { error: "Too many attempts. Try again later." };
+  }
+
+  const parsed = confirmSignupEmailSchema.safeParse({
+    tokenHash: formData.get("tokenHash"),
+    planId: formData.get("planId") || undefined,
+  });
+  if (!parsed.success) {
+    return { error: "This verification link is invalid or has expired." };
+  }
+
+  const supabase = createClient();
+  const { data, error } = await supabase.auth.verifyOtp({ type: "signup", token_hash: parsed.data.tokenHash });
+  const user = data.user;
+  if (error || !user?.email) {
+    return { error: "This verification link is invalid or has expired. Sign up again to get a new one." };
+  }
+
+  let profile = await getUserWithRole(user.id);
+  if (!profile) {
+    const fullName = typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : null;
+    await insertOnboardingUser({ userId: user.id, email: user.email, fullName });
+    profile = await getUserWithRole(user.id);
+  }
+
+  if (profile?.companyId) {
+    redirect("/dashboard");
+  }
+  redirect(parsed.data.planId ? `/onboarding?plan=${parsed.data.planId}` : "/onboarding");
 }
 
 /** The signed-in caller's own profile, for rendering the top bar/user menu. */
@@ -325,12 +381,12 @@ export async function signOutAction(from: "admin" | "tenant"): Promise<{ redirec
 }
 
 /**
- * Requests a Supabase Auth password-reset email (Supabase's own email
- * system — separate from the Brevo integration in lib/email.ts). Always
- * reports success regardless of whether the address is registered, so
- * this can't be used to enumerate accounts. `afterLoginPath` is baked
- * into the redirect URL so /reset-password knows which login page to
- * send the user back to once they're done.
+ * Sends a password-reset email through Brevo (lib/email.ts) — Supabase
+ * Auth only mints the one-time recovery token and never emails anything
+ * itself. Always reports success regardless of whether the address is
+ * registered, so this can't be used to enumerate accounts.
+ * `afterLoginPath` is baked into the link so /reset-password knows which
+ * login page to send the user back to once they're done.
  */
 export async function requestPasswordResetAction(
   afterLoginPath: string,
@@ -348,31 +404,34 @@ export async function requestPasswordResetAction(
     return { submitted: false, error: "Too many reset emails. Try again later." };
   }
 
-  const supabase = createClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const redirectTo = `${appUrl}/reset-password?redirect=${encodeURIComponent(afterLoginPath)}`;
-
-  await supabase.auth.resetPasswordForEmail(parsed.data.email, { redirectTo });
+  const tokenHash = await createPasswordRecoveryToken(parsed.data.email);
+  if (tokenHash) {
+    const params = new URLSearchParams({ token_hash: tokenHash, redirect: afterLoginPath });
+    await sendPasswordResetEmail({
+      to: parsed.data.email,
+      resetUrl: `${getSiteUrl()}/reset-password?${params}`,
+    });
+  }
 
   return { submitted: true, error: null };
 }
 
 /**
- * Completes a password reset. The recovery access/refresh tokens live in
- * the emailed link's URL *fragment*, which the server never sees — the
- * client-side reset-password-form.tsx reads it from
- * `window.location.hash` and passes both tokens in here, where
- * setSession() establishes the recovery session server-side before
- * updateUser() changes the password. Keeps every Supabase call inside
- * modules/*, none in the component itself.
+ * Completes a password reset from the Brevo email's link. The recovery
+ * token is only redeemed here, when the new password is submitted — not
+ * when the page loads — so a mail scanner opening the link can't use it up.
  */
 export async function updatePasswordAction(
-  accessToken: string,
-  refreshToken: string,
   _prevState: ResetPasswordState,
   formData: FormData,
 ): Promise<ResetPasswordState> {
+  const ip = clientIpFromHeaders(headers());
+  if (!consumeRateLimit(`reset-confirm:${ip}`, 10, 15 * 60 * 1000)) {
+    return { success: false, error: "Too many attempts. Try again later." };
+  }
+
   const parsed = resetPasswordSchema.safeParse({
+    tokenHash: formData.get("tokenHash"),
     password: formData.get("password"),
     confirmPassword: formData.get("confirmPassword"),
   });
@@ -383,19 +442,26 @@ export async function updatePasswordAction(
 
   const supabase = createClient();
 
-  const { error: sessionError } = await supabase.auth.setSession({
-    access_token: accessToken,
-    refresh_token: refreshToken,
+  const { error: verifyError } = await supabase.auth.verifyOtp({
+    type: "recovery",
+    token_hash: parsed.data.tokenHash,
   });
 
-  if (sessionError) {
-    return { success: false, error: "This reset link is invalid or has expired." };
+  if (verifyError) {
+    return { success: false, error: "This reset link is invalid or has expired. Request a new one." };
   }
 
   const { error: updateError } = await supabase.auth.updateUser({ password: parsed.data.password });
 
   if (updateError) {
-    return { success: false, error: "Could not update your password." };
+    await supabase.auth.signOut();
+    return {
+      success: false,
+      error:
+        updateError.code === "same_password"
+          ? "Choose a password different from your current one, then request a new reset link."
+          : "Could not update your password. Request a new reset link.",
+    };
   }
 
   await supabase.auth.signOut();

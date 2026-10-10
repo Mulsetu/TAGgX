@@ -11,7 +11,8 @@ export const forgotPasswordSchema = z.object({
 
 export const resetPasswordSchema = z
   .object({
-    password: z.string().min(8),
+    tokenHash: z.string().regex(/^[a-f0-9]{20,128}$/i, "This reset link is invalid. Request a new one."),
+    password: z.string().min(8, "Password must be at least 8 characters"),
     confirmPassword: z.string().min(8),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -28,6 +29,14 @@ export const inviteUserSchema = z.object({
   email: z.string().trim().email("Enter a valid email"),
   roleId: z.string().uuid("Choose a role"),
   vendorId: z.preprocess((value) => (value === "" || value === null ? undefined : value), z.string().uuid().optional()),
+});
+
+/** hashed_token from auth.admin.generateLink — a hex digest. */
+export const signupPlanIdSchema = z.string().uuid();
+
+export const confirmSignupEmailSchema = z.object({
+  tokenHash: z.string().regex(/^[a-f0-9]{20,128}$/i),
+  planId: signupPlanIdSchema.optional(),
 });
 
 export const accountSignupSchema = z

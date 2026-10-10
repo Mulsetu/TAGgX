@@ -1,5 +1,5 @@
 import type { CategoryField, CustomFieldValue } from "@/modules/categories/types";
-import type { AssetFieldConfig } from "@/lib/permissions/workspace-config";
+import type { AssetFieldConfig, AssetFieldKey } from "@/lib/permissions/workspace-config";
 
 export interface CategoryAssetCount {
   categoryId: string | null;
@@ -264,3 +264,96 @@ export interface AssetLocationMove {
   movedByName: string | null;
   notes: string | null;
 }
+
+/** Most labels one bulk QR PDF can hold. */
+export const QR_LABEL_LIMIT = 1000;
+
+export interface QrLabel {
+  id: string;
+  name: string;
+  assetCode: string;
+}
+
+export interface QrLabelsState {
+  error: string | null;
+  labels?: QrLabel[];
+  /** True when more assets matched than QR_LABEL_LIMIT; only the first ones were returned. */
+  truncated?: boolean;
+}
+
+// ---------------------------------------------------------------------
+// CSV import
+// ---------------------------------------------------------------------
+
+/** One column the import sample can contain. */
+export interface AssetImportColumn {
+  column: string;
+  label: string;
+  example: string;
+  hint?: string;
+  required: boolean;
+}
+
+export interface AssetImportCategoryColumns {
+  categoryName: string;
+  columns: AssetImportColumn[];
+}
+
+/** What the import picker offers: always-included columns, optional asset fields, and category fields. */
+export interface AssetImportTemplate {
+  core: AssetImportColumn[];
+  fields: AssetImportColumn[];
+  categories: AssetImportCategoryColumns[];
+}
+
+export interface AssetImportState {
+  error: string | null;
+  result?: { successCount: number; errorCount: number; errorCsv?: string };
+}
+
+/** Category custom fields travel as `custom_<field key>` columns. */
+export const CUSTOM_IMPORT_PREFIX = "custom_";
+
+/**
+ * CSV column for each built-in asset field. Reference fields are matched by
+ * something a person can type: vendor name, user email, asset code.
+ */
+export const ASSET_IMPORT_COLUMNS: Record<AssetFieldKey, { column: string; example: string; hint?: string }> = {
+  serialNumber: { column: "serial_number", example: "SN-001" },
+  brand: { column: "brand", example: "Dell" },
+  model: { column: "model", example: "Latitude 5440" },
+  description: { column: "description", example: "14-inch laptop" },
+  condition: { column: "condition", example: "good", hint: "Condition name or key" },
+  linkedAssetId: { column: "linked_asset_code", example: "", hint: "Code of a related asset" },
+  parentAssetId: { column: "parent_asset_code", example: "", hint: "Code of the parent asset" },
+  cwipInvoiceId: { column: "cwip_invoice_id", example: "" },
+  department: { column: "department", example: "IT" },
+  tags: { column: "tags", example: "laptop, office" },
+  criticality: { column: "criticality", example: "medium", hint: "low, medium, high or critical" },
+  notes: { column: "notes", example: "" },
+  vendorId: { column: "vendor", example: "", hint: "Vendor name" },
+  poNumber: { column: "po_number", example: "PO-1001" },
+  invoiceDate: { column: "invoice_date", example: "2026-01-15", hint: "YYYY-MM-DD" },
+  invoiceNumber: { column: "invoice_number", example: "INV-1001" },
+  purchaseDate: { column: "purchase_date", example: "2026-01-15", hint: "YYYY-MM-DD" },
+  purchasePrice: { column: "purchase_price", example: "55000" },
+  usefulLifeYears: { column: "useful_life_years", example: "5" },
+  currentBookValue: { column: "current_book_value", example: "50000" },
+  residualValue: { column: "residual_value", example: "5000" },
+  ownershipType: { column: "ownership", example: "owned", hint: "owned or partner (then fill partner_name)" },
+  allottedTo: { column: "allotted_to_email", example: "", hint: "Email of a user in this workspace" },
+  allotmentDate: { column: "allotment_date", example: "2026-01-20", hint: "YYYY-MM-DD" },
+  warrantyStartDate: { column: "warranty_start_date", example: "2026-01-15", hint: "YYYY-MM-DD" },
+  warrantyEndDate: { column: "warranty_end_date", example: "2029-01-14", hint: "YYYY-MM-DD" },
+  amcProvider: { column: "amc_provider", example: "" },
+  amcStartDate: { column: "amc_start_date", example: "", hint: "YYYY-MM-DD" },
+  amcEndDate: { column: "amc_end_date", example: "", hint: "YYYY-MM-DD" },
+  insuranceProvider: { column: "insurance_provider", example: "" },
+  insurancePolicyNumber: { column: "insurance_policy_number", example: "" },
+  insuranceExpiryDate: { column: "insurance_expiry_date", example: "", hint: "YYYY-MM-DD" },
+};
+
+export const PARTNER_NAME_IMPORT_COLUMN = "partner_name";
+
+/** Most rows one import file may contain. */
+export const ASSET_IMPORT_ROW_LIMIT = 500;

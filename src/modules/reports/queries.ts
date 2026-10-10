@@ -1,7 +1,9 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardWidgetKey } from "@/lib/permissions/workspace-config";
-import type { ReportKey, ReportTable } from "./types";
+import { listLocationAndDescendantIds } from "@/modules/locations/queries";
+import type { ReportFilters, ReportKey, ReportTable } from "./types";
+import { REPORT_COLUMNS } from "./types";
 
 interface AssetReportRow {
   id: string;
@@ -33,34 +35,37 @@ function nameOf(value: { name: string } | { name: string }[] | null): string {
   return one(value)?.name ?? "";
 }
 
-async function listAssetRows(): Promise<AssetReportRow[]> {
+/** Asset report rows; filters run in the database, and RLS keeps them to the caller's company. */
+async function listAssetRows(filters: ReportFilters): Promise<AssetReportRow[]> {
   const supabase = createClient();
-  const { data } = await supabase
+  let query = supabase
     .from("assets")
     .select(
       "id, name, asset_code, condition, serial_number, brand, model, vendor, purchase_date, warranty_end_date, amc_end_date, insurance_expiry_date, location_id, allotted_to, asset_categories(name), locations(name), asset_statuses(name), allotted_user:users!assets_allotted_to_fkey(email, full_name)",
     )
+    .is("deleted_at", null)
     .order("asset_code")
-    .limit(5000)
-    .returns<AssetReportRow[]>();
+    .limit(5000);
+
+  if (!filters.includeArchived) query = query.is("archived_at", null);
+  if (filters.categoryId) query = query.eq("category_id", filters.categoryId);
+  if (filters.locationId) query = query.in("location_id", await listLocationAndDescendantIds(filters.locationId));
+  if (filters.statusId) query = query.eq("status_id", filters.statusId);
+  if (filters.from) query = query.gte("purchase_date", filters.from);
+  if (filters.to) query = query.lte("purchase_date", filters.to);
+
+  const { data } = await query.returns<AssetReportRow[]>();
   return data ?? [];
+}
+
+function custodianOf(row: AssetReportRow): string {
+  const user = one(row.allotted_user);
+  return user?.full_name ?? user?.email ?? "";
 }
 
 function toRegister(rows: AssetReportRow[]): ReportTable {
   return {
-    columns: [
-      "Name",
-      "Code",
-      "Category",
-      "Location",
-      "Status",
-      "Condition",
-      "Custodian",
-      "Serial",
-      "Warranty end",
-      "AMC end",
-      "Insurance end",
-    ],
+    columns: REPORT_COLUMNS.asset_register,
     rows: rows.map((row) => [
       row.name,
       row.asset_code,
@@ -68,8 +73,12 @@ function toRegister(rows: AssetReportRow[]): ReportTable {
       nameOf(row.locations),
       nameOf(row.asset_statuses),
       row.condition ?? "",
-      one(row.allotted_user)?.full_name ?? one(row.allotted_user)?.email ?? "",
+      custodianOf(row),
+      row.brand ?? "",
+      row.model ?? "",
       row.serial_number ?? "",
+      row.vendor ?? "",
+      row.purchase_date ?? "",
       row.warranty_end_date ?? "",
       row.amc_end_date ?? "",
       row.insurance_expiry_date ?? "",
@@ -77,40 +86,40 @@ function toRegister(rows: AssetReportRow[]): ReportTable {
   };
 }
 
-function groupBy(rows: AssetReportRow[], key: (row: AssetReportRow) => string): ReportTable {
+function groupBy(rows: AssetReportRow[], label: string, key: (row: AssetReportRow) => string): ReportTable {
   const counts = new Map<string, number>();
   for (const row of rows) {
-    const label = key(row) || "(blank)";
-    counts.set(label, (counts.get(label) ?? 0) + 1);
+    const group = key(row) || "(blank)";
+    counts.set(group, (counts.get(group) ?? 0) + 1);
   }
   return {
-    columns: ["Group", "Count"],
+    columns: [label, "Count"],
     rows: Array.from(counts.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([group, count]) => [group, String(count)]),
   };
 }
 
-export async function buildReport(key: ReportKey): Promise<ReportTable> {
+export async function buildReport(key: ReportKey, filters: ReportFilters): Promise<ReportTable> {
   if (key === "maintenance_overdue") {
-    return listOverdueMaintenance();
+    return listOverdueMaintenance(filters);
   }
   if (key === "audit_exceptions") {
-    return listAuditExceptions();
+    return listAuditExceptions(filters);
   }
 
-  const assets = await listAssetRows();
+  const assets = await listAssetRows(filters);
   const today = new Date().toISOString().slice(0, 10);
 
   switch (key) {
     case "asset_register":
       return toRegister(assets);
     case "by_status":
-      return groupBy(assets, (row) => nameOf(row.asset_statuses));
+      return groupBy(assets, "Status", (row) => nameOf(row.asset_statuses));
     case "by_location":
-      return groupBy(assets, (row) => nameOf(row.locations));
+      return groupBy(assets, "Location", (row) => nameOf(row.locations));
     case "by_custodian":
-      return groupBy(assets, (row) => one(row.allotted_user)?.full_name ?? one(row.allotted_user)?.email ?? "");
+      return groupBy(assets, "Custodian", custodianOf);
     case "missing_unassigned":
       return toRegister(assets.filter((row) => !row.location_id || !row.allotted_to));
     case "warranty_amc":
@@ -127,26 +136,35 @@ export async function buildReport(key: ReportKey): Promise<ReportTable> {
   }
 }
 
-async function listOverdueMaintenance(): Promise<ReportTable> {
+async function listOverdueMaintenance(filters: ReportFilters): Promise<ReportTable> {
   const supabase = createClient();
   const today = new Date().toISOString().slice(0, 10);
-  const { data } = await supabase
+  const assetFiltered = Boolean(filters.categoryId || filters.locationId || filters.statusId);
+  let query = supabase
     .from("maintenance_tickets")
-    .select("title, due_at, status, priority, assets(name, asset_code)")
+    .select(`title, due_at, status, priority, assets${assetFiltered ? "!inner" : ""}(name, asset_code)`)
     .in("status", ["open", "in_progress"])
     .lt("due_at", today)
-    .limit(2000)
-    .returns<
-      {
-        title: string;
-        due_at: string | null;
-        status: string;
-        priority: string;
-        assets: { name: string; asset_code: string } | { name: string; asset_code: string }[] | null;
-      }[]
-    >();
+    .order("due_at")
+    .limit(2000);
+
+  if (filters.categoryId) query = query.eq("assets.category_id", filters.categoryId);
+  if (filters.locationId) query = query.in("assets.location_id", await listLocationAndDescendantIds(filters.locationId));
+  if (filters.statusId) query = query.eq("assets.status_id", filters.statusId);
+  if (filters.from) query = query.gte("due_at", filters.from);
+  if (filters.to) query = query.lte("due_at", `${filters.to}T23:59:59.999Z`);
+
+  const { data } = await query.returns<
+    {
+      title: string;
+      due_at: string | null;
+      status: string;
+      priority: string;
+      assets: { name: string; asset_code: string } | { name: string; asset_code: string }[] | null;
+    }[]
+  >();
   return {
-    columns: ["Title", "Asset", "Code", "Due", "Status", "Priority"],
+    columns: REPORT_COLUMNS.maintenance_overdue,
     rows: (data ?? []).map((row) => {
       const asset = one(row.assets);
       return [row.title, asset?.name ?? "", asset?.asset_code ?? "", row.due_at ?? "", row.status, row.priority];
@@ -154,24 +172,29 @@ async function listOverdueMaintenance(): Promise<ReportTable> {
   };
 }
 
-async function listAuditExceptions(): Promise<ReportTable> {
+async function listAuditExceptions(filters: ReportFilters): Promise<ReportTable> {
   const supabase = createClient();
-  const { data } = await supabase
+  const dated = Boolean(filters.from || filters.to);
+  let query = supabase
     .from("audit_items")
-    .select("asset_name, asset_code, exception_types, notes, audits(name, scheduled_date)")
+    .select(`asset_name, asset_code, exception_types, notes, audits${dated ? "!inner" : ""}(name, scheduled_date)`)
     .eq("status", "exception")
-    .limit(2000)
-    .returns<
-      {
-        asset_name: string;
-        asset_code: string;
-        exception_types: string[] | null;
-        notes: string | null;
-        audits: { name: string; scheduled_date: string } | { name: string; scheduled_date: string }[] | null;
-      }[]
-    >();
+    .limit(2000);
+
+  if (filters.from) query = query.gte("audits.scheduled_date", filters.from);
+  if (filters.to) query = query.lte("audits.scheduled_date", filters.to);
+
+  const { data } = await query.returns<
+    {
+      asset_name: string;
+      asset_code: string;
+      exception_types: string[] | null;
+      notes: string | null;
+      audits: { name: string; scheduled_date: string } | { name: string; scheduled_date: string }[] | null;
+    }[]
+  >();
   return {
-    columns: ["Audit", "Date", "Asset", "Code", "Exceptions", "Notes"],
+    columns: REPORT_COLUMNS.audit_exceptions,
     rows: (data ?? []).map((row) => {
       const audit = one(row.audits);
       return [
@@ -525,24 +548,4 @@ export async function getDashboardWidgetData(
 
   await Promise.all(jobs);
   return { values, charts };
-}
-
-export async function lookupCatalogs(): Promise<{
-  categories: Map<string, string>;
-  locations: Map<string, string>;
-  statuses: Map<string, { id: string; isFinal: boolean }>;
-}> {
-  const supabase = createClient();
-  const [{ data: categories }, { data: locations }, { data: statuses }] = await Promise.all([
-    supabase.from("asset_categories").select("id, name").returns<{ id: string; name: string }[]>(),
-    supabase.from("locations").select("id, name").returns<{ id: string; name: string }[]>(),
-    supabase.from("asset_statuses").select("id, name, is_final").returns<{ id: string; name: string; is_final: boolean }[]>(),
-  ]);
-  return {
-    categories: new Map((categories ?? []).map((row) => [row.name.trim().toLowerCase(), row.id])),
-    locations: new Map((locations ?? []).map((row) => [row.name.trim().toLowerCase(), row.id])),
-    statuses: new Map(
-      (statuses ?? []).map((row) => [row.name.trim().toLowerCase(), { id: row.id, isFinal: row.is_final }]),
-    ),
-  };
 }

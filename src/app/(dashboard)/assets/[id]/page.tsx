@@ -259,7 +259,12 @@ export default async function AssetDetailPage({ params }: AssetDetailPageProps) 
             <div className="border-t border-slate-100 pt-4">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">QR tag</h2>
               <p className="mb-3 mt-1 text-xs text-slate-500">Scanning opens the public page, not this editor.</p>
-              <QrTag assetId={asset.id} assetCode={asset.assetCode} generated={Boolean(asset.qrGeneratedAt)} />
+              <QrTag
+                assetId={asset.id}
+                assetName={asset.name}
+                assetCode={asset.assetCode}
+                generated={Boolean(asset.qrGeneratedAt)}
+              />
             </div>
           ) : null}
         </div>
