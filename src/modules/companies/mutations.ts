@@ -215,27 +215,6 @@ export async function updateCompanyBranding(
   return { success: true };
 }
 
-/**
- * Branding write used during public signup, before the new admin has a
- * session. RLS's tenant policy wouldn't let an anonymous caller update
- * the row, so this uses the service-role client. Validation still lives
- * in the signup action.
- */
-export async function updateCompanyLogoAdmin(
-  companyId: string,
-  logoUrl: string,
-): Promise<UpdateCompanyBrandingResult> {
-  const supabase = createAdminClient();
-
-  const { error } = await supabase.from("companies").update({ logo_url: logoUrl }).eq("id", companyId);
-
-  if (error) {
-    return { error: "Could not save the logo." };
-  }
-
-  return { success: true };
-}
-
 export interface WorkspaceSettingsPatch {
   enabledModules?: Record<string, boolean>;
   assetFieldConfig?: Record<string, unknown>;

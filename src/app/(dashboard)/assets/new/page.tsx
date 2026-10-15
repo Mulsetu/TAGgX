@@ -3,14 +3,21 @@ import { Button } from "@/components/ui/button";
 import { assertModule } from "@/lib/permissions/features";
 import { assertPermission } from "@/lib/permissions/has-permission";
 import { getCurrentCompanyQuota } from "@/modules/billing/actions";
-import { getAssetFormOptionsForForm, getAssetImportTemplateAction } from "@/modules/assets/actions";
+import { getAssetFormOptionsForForm } from "@/modules/assets/actions";
 import { AssetCsvImport } from "../asset-csv-import";
 import { AssetForm } from "../asset-form";
 
 export default async function NewAssetPage() {
-  await assertModule("assets");
-  await assertPermission("assets", "create");
-  const quota = await getCurrentCompanyQuota();
+  // Everything starts at once. The guards still decide the outcome (they
+  // redirect by throwing, which rejects the whole Promise.all), and the data
+  // calls run their own permission checks, so starting them before the
+  // guards settle exposes nothing.
+  const [, , quota, options] = await Promise.all([
+    assertModule("assets"),
+    assertPermission("assets", "create"),
+    getCurrentCompanyQuota(),
+    getAssetFormOptionsForForm(),
+  ]);
 
   if (quota.atLimit) {
     return (
@@ -28,8 +35,6 @@ export default async function NewAssetPage() {
     );
   }
 
-  const [options, importTemplate] = await Promise.all([getAssetFormOptionsForForm(), getAssetImportTemplateAction()]);
-
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">New asset</h1>
@@ -39,7 +44,7 @@ export default async function NewAssetPage() {
           {quota.remaining === 1 ? "" : "s"} remaining on your plan.
         </p>
       ) : null}
-      <AssetCsvImport template={importTemplate} />
+      <AssetCsvImport />
       <AssetForm mode="create" options={options} />
     </div>
   );

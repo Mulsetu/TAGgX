@@ -12,12 +12,12 @@ import { cancelRazorpaySubscriptionAtCycleEnd } from "@/lib/razorpay";
 import { sendPlanChangeRequestEmail } from "@/lib/email";
 import { getSiteUrl } from "@/lib/site";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
+import { getCompanyPlan, getCompanySubscription } from "@/lib/permissions/features";
 import { createClient } from "@/lib/supabase/server";
 import {
   createCompany,
   deleteCompany,
   seedCompanyPlatformCatalogs,
-  updateCompanyLogoAdmin,
 } from "@/modules/companies/mutations";
 import { getCompanyById, getCompanyBySlug } from "@/modules/companies/queries";
 import { createSystemAdminRole, seedDefaultCompanyRoles } from "@/modules/roles/mutations";
@@ -25,7 +25,6 @@ import { seedDefaultAssetStatuses } from "@/modules/statuses/mutations";
 import { seedDefaultAssetConditions } from "@/modules/conditions/mutations";
 import { attachUserToCompany, detachUserFromCompany } from "@/modules/users/mutations";
 import { getUserWithRole } from "@/modules/users/queries";
-import { uploadFileToR2 } from "@/modules/storage/mutations";
 import { parsePlanModules } from "@/lib/permissions/feature-catalog";
 import {
   assignPlanSchema,
@@ -189,8 +188,10 @@ export async function getCurrentCompanyQuota(): Promise<CompanyAssetQuota> {
     return quotaFrom(null, 0, 0, "none");
   }
 
+  // Request-cached subscription: the shell's read-only gate and module
+  // checks have usually fetched it already on this render.
   const [subscription, assetCount] = await Promise.all([
-    getSubscriptionForCompany(companyId),
+    getCompanySubscription(companyId),
     countAssetsForCompany(companyId),
   ]);
 
@@ -198,7 +199,7 @@ export async function getCurrentCompanyQuota(): Promise<CompanyAssetQuota> {
     return quotaFrom(null, 0, assetCount, "none");
   }
 
-  const plan = await getPlanById(subscription.planId);
+  const plan = await getCompanyPlan(subscription.planId);
   return quotaFrom(plan, subscription.extraAssets, assetCount, subscription.status);
 }
 
@@ -574,6 +575,11 @@ export async function createWorkspaceForCurrentUserAction(
   if (!plan || !plan.isActive) {
     return { error: "That plan is no longer available. Pick another one." };
   }
+  // Paid plans renew by automatic card debit, so the customer must agree to
+  // the recurring charge before a subscription is created.
+  if (plan.priceMonthly > 0 && formData.get("autopayConsent") !== "on") {
+    return { error: "Please authorise the monthly card charge to continue." };
+  }
 
   const existing = await getCompanyBySlug(parsed.data.slug);
   if (existing) {
@@ -656,20 +662,17 @@ export async function createWorkspaceForCurrentUserAction(
     return { error: limits.error };
   }
 
-  const logoFile = formData.get("logo");
-  if (logoFile instanceof File && logoFile.size > 0) {
-    const uploadResult = await uploadFileToR2({ companyId, folder: "branding", file: logoFile });
-    if (!("error" in uploadResult)) {
-      await updateCompanyLogoAdmin(companyId, uploadResult.url);
-    }
-  }
-
   await writeAuditLog({
     action: "company.created",
     entityType: "company",
     entityId: companyId,
     companyId,
-    newValues: { slug: parsed.data.slug, planId: plan.id, type: "self_service" },
+    newValues: {
+      slug: parsed.data.slug,
+      planId: plan.id,
+      type: "self_service",
+      ...(paidPlan ? { autopayConsentAt: new Date().toISOString(), autopayAmount: plan.priceMonthly } : {}),
+    },
   });
 
   cookies().set(TENANT_SLUG_COOKIE, parsed.data.slug, {

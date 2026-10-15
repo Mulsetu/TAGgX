@@ -5,7 +5,7 @@ import {
   hasAuthTokenCookie,
   isTransientAuthError,
 } from "@/lib/supabase/middleware";
-import { checkSuperAdmin } from "@/lib/permissions/super-admin";
+import { checkSuperAdmin } from "@/lib/permissions/check-super-admin";
 import { safePostLoginPath } from "@/lib/paths";
 import { resolveTenant, TENANT_HEADERS, tenantLoginPathFromCookie, TENANT_SLUG_COOKIE } from "@/lib/tenant";
 
@@ -14,6 +14,10 @@ interface UserProfileRow {
   role_id: string | null;
   is_active: boolean;
   is_company_admin: boolean;
+  // Embedded via users.company_id. Named explicitly because companies also
+  // points back at users (deletion_requested_by), which makes a bare
+  // `companies(...)` embed ambiguous to PostgREST.
+  company: { suspended_at: string | null } | null;
 }
 
 /**
@@ -143,13 +147,16 @@ export async function middleware(request: NextRequest) {
   const [{ data: profileWithAdmin, error: profileError }, isSuperAdmin] = await Promise.all([
     supabase
       .from("users")
-      .select("company_id, role_id, is_active, is_company_admin")
+      .select("company_id, role_id, is_active, is_company_admin, company:companies!users_company_id_fkey(suspended_at)")
       .eq("id", user.id)
       .maybeSingle<UserProfileRow>(),
     checkSuperAdmin(supabase, user.id),
   ]);
 
-  let profile = profileWithAdmin;
+  let profile: Omit<UserProfileRow, "company"> | null = profileWithAdmin;
+  // Suspension comes back with the profile row — one round trip instead of
+  // a second, sequential companies query on every request.
+  let companySuspendedAt: string | null | undefined = profileWithAdmin?.company?.suspended_at;
   if (profileError && !profile) {
     const fallback = await supabase
       .from("users")
@@ -169,15 +176,16 @@ export async function middleware(request: NextRequest) {
   const isInvitePath = pathname === "/invite" || pathname.startsWith("/invite/");
 
   const tenantProfileInactive = profile?.is_active === false;
-  let tenantCompanySuspended = false;
-  if (profile?.company_id) {
+  if (profile?.company_id && companySuspendedAt === undefined) {
+    // Only on the legacy fallback path, where the embed was not fetched.
     const { data: companyRow } = await supabase
       .from("companies")
       .select("suspended_at")
       .eq("id", profile.company_id)
       .maybeSingle<{ suspended_at: string | null }>();
-    tenantCompanySuspended = companyRow?.suspended_at != null;
+    companySuspendedAt = companyRow?.suspended_at ?? null;
   }
+  const tenantCompanySuspended = companySuspendedAt != null;
 
   // Same surfaces that already require a tenant session when logged out:
   // /dashboard, /assets, /floor, and /{slug}/* except login/forgot-password.

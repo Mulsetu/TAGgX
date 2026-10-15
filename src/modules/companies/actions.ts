@@ -1,6 +1,7 @@
 "use server";
 
 import "server-only";
+import { cache } from "react";
 import ExcelJS from "exceljs";
 import type { z } from "zod";
 import { headers } from "next/headers";
@@ -10,7 +11,7 @@ import { isValidTenantSlug, TENANT_HEADERS } from "@/lib/tenant";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { sendUserInviteEmail, sendWorkspaceDeletionRequestEmail } from "@/lib/email";
 import { getRequestSiteUrl } from "@/lib/request-origin";
 import { getSiteUrl } from "@/lib/site";
@@ -122,6 +123,12 @@ export async function resolveWorkspaceLogin(formData: FormData): Promise<never> 
  * client-supplied value.
  */
 export async function getCurrentCompany(): Promise<CompanyBranding | null> {
+  return loadCurrentCompany();
+}
+
+// Memoized per request: generateMetadata, the app shell and several pages
+// all ask for the same branding row.
+const loadCurrentCompany = cache(async (): Promise<CompanyBranding | null> => {
   const headerId = headers().get(TENANT_HEADERS.companyId);
   if (headerId) {
     const fromHeader = await getCompanyById(headerId);
@@ -130,15 +137,12 @@ export async function getCurrentCompany(): Promise<CompanyBranding | null> {
     }
   }
 
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (!user) {
     return null;
   }
 
-  const { data: profile } = await supabase
+  const { data: profile } = await createClient()
     .from("users")
     .select("company_id")
     .eq("id", user.id)
@@ -150,7 +154,7 @@ export async function getCurrentCompany(): Promise<CompanyBranding | null> {
   }
 
   return (await getCompanyById(companyId)) ?? (await getCompanyByIdAdmin(companyId));
-}
+});
 
 /** Every company on the platform. Super-admin only — see /admin. */
 export async function listCompaniesForAdmin(): Promise<CompanySummary[]> {

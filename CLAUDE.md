@@ -13,7 +13,7 @@ Guidance for Claude Code (and any contributor) working in this repo.
 
 ## Folder layering
 
-Full rationale and folder map: [`/docs/FOLDER_STRUCTURE.md`](./docs/FOLDER_STRUCTURE.md).
+Full rationale and folder map: [README.md § Architecture](./README.md#3-architecture).
 
 > **View (`app/`, `components/`) → Controller (`modules/*/actions.ts`) → Model
 > (`modules/*/queries.ts` + `mutations.ts`) → Database — one direction only,

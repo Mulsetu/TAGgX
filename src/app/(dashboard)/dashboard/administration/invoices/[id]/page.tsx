@@ -8,7 +8,7 @@ import { getInvoiceForCurrentCompany } from "@/modules/billing/actions";
 import { PrintButton } from "./print-button";
 
 const METHOD_LABELS: Record<string, string> = {
-  razorpay: "Razorpay (card / UPI / net banking)",
+  razorpay: "Card (Razorpay)",
   upi: "UPI",
   bank_transfer: "Bank transfer",
   neft: "NEFT",

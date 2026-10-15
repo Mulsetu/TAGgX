@@ -1,8 +1,9 @@
 import "server-only";
+import { cache } from "react";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { TENANT_HEADERS } from "@/lib/tenant";
-import { getSubscriptionForCompany } from "@/modules/billing/queries";
+import { getCompanySubscription } from "./features";
 import type { SubscriptionStatus } from "@/modules/billing/types";
 
 const READ_ONLY_STATUSES: SubscriptionStatus[] = [
@@ -34,7 +35,8 @@ async function getCompanySuspended(companyId: string): Promise<boolean> {
   return data?.suspended_at != null;
 }
 
-export async function getTenantAccessState(): Promise<TenantAccessState> {
+/** Memoized per request: the shell banner and every write guard share one read. */
+export const getTenantAccessState = cache(async (): Promise<TenantAccessState> => {
   const companyId = headers().get(TENANT_HEADERS.companyId);
   if (!companyId) {
     return { writable: false, suspended: false, subscriptionStatus: "none" };
@@ -42,7 +44,7 @@ export async function getTenantAccessState(): Promise<TenantAccessState> {
 
   const [suspended, subscription] = await Promise.all([
     getCompanySuspended(companyId),
-    getSubscriptionForCompany(companyId),
+    getCompanySubscription(companyId),
   ]);
 
   // A plan cancelled from Billing keeps renewing off (auto_renew=false)
@@ -62,7 +64,7 @@ export async function getTenantAccessState(): Promise<TenantAccessState> {
     suspended,
     subscriptionStatus,
   };
-}
+});
 
 /** Blocks tenant writes except billing/settings. Super-admin /admin actions skip this. */
 export async function requireWritableTenant(): Promise<boolean> {

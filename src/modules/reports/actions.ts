@@ -64,25 +64,23 @@ export async function getDashboardHome(rawPeriod?: unknown): Promise<DashboardHo
   const runtime = await getWorkspaceRuntime();
   const configured = runtime.widgets;
 
-  const allowed: DashboardWidgetKey[] = [];
-  for (const key of DASHBOARD_WIDGET_KEYS) {
-    const setting = configured[key];
-    if (!setting.enabled) {
-      continue;
-    }
-    if (!widgetEnabledByModules(key, runtime.modules)) {
-      continue;
-    }
-    const permissionModule = DASHBOARD_WIDGET_PERMISSIONS[key];
-    if (permissionModule && !(await requirePermission(permissionModule, "view"))) {
-      continue;
-    }
-    const feature = DASHBOARD_WIDGET_MODULES[key];
-    if (feature && !(await requireModule(feature))) {
-      continue;
-    }
-    allowed.push(key);
-  }
+  // Checked concurrently, not one widget after another; the permission and
+  // module lookups behind them are memoized per request.
+  const checks = await Promise.all(
+    DASHBOARD_WIDGET_KEYS.map(async (key) => {
+      if (!configured[key].enabled || !widgetEnabledByModules(key, runtime.modules)) {
+        return null;
+      }
+      const permissionModule = DASHBOARD_WIDGET_PERMISSIONS[key];
+      const feature = DASHBOARD_WIDGET_MODULES[key];
+      const [permitted, moduleOn] = await Promise.all([
+        permissionModule ? requirePermission(permissionModule, "view") : true,
+        feature ? requireModule(feature) : true,
+      ]);
+      return permitted && moduleOn ? key : null;
+    }),
+  );
+  const allowed = checks.filter((key): key is DashboardWidgetKey => key !== null);
 
   const periodStats = allowed.filter((key) => (PERIOD_STAT_KEYS as readonly string[]).includes(key));
   const [data, previous] = await Promise.all([

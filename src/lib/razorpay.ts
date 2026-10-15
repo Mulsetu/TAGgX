@@ -88,7 +88,10 @@ export async function createRazorpayCustomer(input: {
     const customer = await getClient().customers.create({
       email: input.email,
       name: trimmedName.length >= 3 ? trimmedName.slice(0, 50) : undefined,
-      fail_existing: 0,
+      // Razorpay documents this flag as the string "0" ("return the existing
+      // customer instead of failing"); the numeric 0 the SDK's type allows
+      // was ignored, giving "Customer already exists for the merchant".
+      fail_existing: "0" as unknown as 0,
     });
     return { id: customer.id };
   } catch (error) {

@@ -1,17 +1,19 @@
 "use server";
 
 import "server-only";
+import { cache } from "react";
 import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { safePostLoginPath } from "@/lib/paths";
 import { isValidTenantSlug, TENANT_SLUG_COOKIE, tenantLoginPathFromCookie } from "@/lib/tenant";
 import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
 import { getCompanyBySlug, getCompanySuspendedAt } from "@/modules/companies/queries";
 import { createCompanyInvite } from "@/modules/companies/mutations";
 import { getCurrentCompany } from "@/modules/companies/actions";
-import { checkSuperAdmin, isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
+import { checkSuperAdmin } from "@/lib/permissions/check-super-admin";
+import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { sendPasswordResetEmail, sendSignupVerificationEmail, sendUserInviteEmail } from "@/lib/email";
@@ -22,6 +24,8 @@ import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/querie
 import {
   accountSignupSchema,
   confirmSignupEmailSchema,
+  continueSignupSchema,
+  resendVerificationSchema,
   signupPlanIdSchema,
   forgotPasswordSchema,
   inviteUserSchema,
@@ -29,11 +33,12 @@ import {
   signInSchema,
   transferCompanyAdminSchema,
 } from "./validation";
-import { getInviteByToken, getUserWithRole, listCompanyUsers, listPendingInvites } from "./queries";
+import { getInviteByToken, getSignupResumeProfile, getUserWithRole, listCompanyUsers, listPendingInvites } from "./queries";
 import {
   acceptCompanyInvite,
   createPasswordRecoveryToken,
   createSignupAccount,
+  createSignupResendToken,
   insertOnboardingUser,
   setUserActive,
   transferCompanyAdmin,
@@ -49,6 +54,7 @@ import type {
   InviteDetails,
   InviteUserFormState,
   PendingInviteSummary,
+  ResendVerificationState,
   ResetPasswordState,
   UserActionState,
 } from "./types";
@@ -234,7 +240,9 @@ export async function signupAccountAction(
   });
   if ("error" in account) {
     if (account.error === "exists") {
-      return { error: "An account with this email already exists. Please sign in or reset your password." };
+      // Someone who started signing up earlier and came back: pick up where
+      // they left off instead of dead-ending on "already registered".
+      return resumeExistingSignup(parsed.data.email, parsed.data.password, planId);
     }
     return { error: account.message ?? "Could not create your account." };
   }
@@ -248,24 +256,173 @@ export async function signupAccountAction(
     return { error: profile.error };
   }
 
-  // Our own confirm page, not Supabase's /verify: no redirect allow-list,
-  // no PKCE cookie (works when the link opens in another browser), and a
-  // button press instead of a GET so mail scanners can't burn the token.
-  const verifyParams = new URLSearchParams({ token_hash: account.tokenHash });
-  if (planId) {
-    verifyParams.set("plan", planId);
-  }
-  const verifyUrl = `${getSiteUrl()}/auth/confirm?${verifyParams}`;
-  const sent = await sendSignupVerificationEmail({
-    to: parsed.data.email,
-    recipientName: parsed.data.fullName,
-    verifyUrl,
+  const sent = await sendVerificationLink({
+    email: parsed.data.email,
+    fullName: parsed.data.fullName,
+    tokenHash: account.tokenHash,
+    verificationType: "signup",
+    planId,
   });
-  if ("error" in sent) {
+  if (!sent) {
     return { error: "We couldn't send the verification email. Try again in a few minutes." };
   }
 
   return { error: null, checkEmail: true };
+}
+
+/**
+ * Our own confirm page, not Supabase's /verify: no redirect allow-list,
+ * no PKCE cookie (works when the link opens in another browser), and a
+ * button press instead of a GET so mail scanners can't burn the token.
+ */
+async function sendVerificationLink(input: {
+  email: string;
+  fullName: string | null;
+  tokenHash: string;
+  verificationType: "signup" | "magiclink";
+  planId: string | null;
+}): Promise<boolean> {
+  const verifyParams = new URLSearchParams({ token_hash: input.tokenHash });
+  if (input.verificationType !== "signup") {
+    verifyParams.set("type", input.verificationType);
+  }
+  if (input.planId) {
+    verifyParams.set("plan", input.planId);
+  }
+  const sent = await sendSignupVerificationEmail({
+    to: input.email,
+    recipientName: input.fullName ?? undefined,
+    verifyUrl: `${getSiteUrl()}/auth/confirm?${verifyParams}`,
+  });
+  return !("error" in sent);
+}
+
+const PAYMENT_DUE_STATUSES = new Set(["pending_payment", "past_due", "halted"]);
+
+/**
+ * A returning signup: the email already has an account. Signs in with the
+ * password just entered and sends them to whichever step they left off at:
+ *   - never verified        -> a fresh verification email (old link expired)
+ *   - verified, no company  -> /onboarding to name the workspace and pay
+ *   - company, payment due  -> Settings -> Billing to add a card
+ *   - company, paid         -> /dashboard
+ * A wrong password only reveals that the account exists, which the old
+ * "already registered" message said too.
+ */
+async function resumeExistingSignup(
+  email: string,
+  password: string,
+  planId: string | null,
+): Promise<AccountSignupState> {
+  const supabase = createClient();
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error || !data.user) {
+    if (error?.code === "email_not_confirmed") {
+      // Correct password, never verified: replace the expired link.
+      const fresh = await createSignupResendToken(email);
+      if (!fresh) {
+        return { error: "We couldn't send a new verification email. Try again in a few minutes." };
+      }
+      const sent = await sendVerificationLink({ email, planId, ...fresh });
+      return sent
+        ? { error: null, checkEmail: true }
+        : { error: "We couldn't send a new verification email. Try again in a few minutes." };
+    }
+    return { error: null, existingAccount: true };
+  }
+
+  const user = data.user;
+  let profile = await getSignupResumeProfile(user.id);
+  if (!profile.hasProfile) {
+    const fullName = typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : null;
+    await insertOnboardingUser({ userId: user.id, email, fullName });
+    profile = await getSignupResumeProfile(user.id);
+  }
+
+  if (!profile.isActive) {
+    await supabase.auth.signOut();
+    return { error: "This account has been deactivated. Contact your company admin." };
+  }
+
+  if (!profile.companyId) {
+    if (planId) {
+      cookies().set("tagx-signup-plan", planId, { path: "/", sameSite: "lax", httpOnly: true, maxAge: 60 * 60 * 24 });
+    }
+    return { error: null, redirectPath: planId ? `/onboarding?plan=${planId}` : "/onboarding" };
+  }
+
+  if (profile.companySlug) {
+    cookies().set(TENANT_SLUG_COOKIE, profile.companySlug, {
+      path: "/",
+      sameSite: "lax",
+      httpOnly: true,
+      maxAge: 60 * 60 * 24 * 400,
+    });
+  }
+  const subscription = await getSubscriptionForCompany(profile.companyId);
+  return {
+    error: null,
+    redirectPath:
+      subscription && PAYMENT_DUE_STATUSES.has(subscription.status)
+        ? "/dashboard/administration/settings/billing"
+        : "/dashboard",
+  };
+}
+
+/** /signup/continue: email + password only, for someone coming back to finish. */
+export async function continueSignupAction(
+  _prevState: AccountSignupState,
+  formData: FormData,
+): Promise<AccountSignupState> {
+  const parsed = continueSignupSchema.safeParse({
+    email: formData.get("email"),
+    password: formData.get("password"),
+    planId: formData.get("planId") || undefined,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const key = `signup-continue:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}`;
+  if (!consumeRateLimit(key, 10, 15 * 60 * 1000)) {
+    return { error: "Too many attempts. Try again later." };
+  }
+
+  const result = await resumeExistingSignup(parsed.data.email, parsed.data.password, parsed.data.planId ?? null);
+  if (result.existingAccount) {
+    return { error: "That email and password don't match. Try again or reset your password." };
+  }
+  return result;
+}
+
+/**
+ * "Link expired or never arrived": mails a fresh verification link if the
+ * address belongs to an unverified account. Always answers the same way so
+ * it can't be used to discover which emails are registered.
+ */
+export async function resendSignupVerificationAction(
+  _prevState: ResendVerificationState,
+  formData: FormData,
+): Promise<ResendVerificationState> {
+  const parsed = resendVerificationSchema.safeParse({
+    email: formData.get("email"),
+    planId: formData.get("planId") || undefined,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Enter a valid email address." };
+  }
+
+  const key = `signup-resend:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}`;
+  if (!consumeRateLimit(key, 3, 15 * 60 * 1000)) {
+    return { error: "Too many requests. Try again in a few minutes." };
+  }
+
+  const fresh = await createSignupResendToken(parsed.data.email);
+  if (fresh) {
+    await sendVerificationLink({ email: parsed.data.email, planId: parsed.data.planId ?? null, ...fresh });
+  }
+  return { error: null, submitted: true };
 }
 
 /** Auth email-confirm callback. Returns the in-app path to send the user to. */
@@ -314,16 +471,20 @@ export async function confirmSignupEmailAction(
   const parsed = confirmSignupEmailSchema.safeParse({
     tokenHash: formData.get("tokenHash"),
     planId: formData.get("planId") || undefined,
+    verificationType: formData.get("verificationType") || undefined,
   });
   if (!parsed.success) {
-    return { error: "This verification link is invalid or has expired." };
+    return { error: "This verification link is invalid or has expired.", expired: true };
   }
 
   const supabase = createClient();
-  const { data, error } = await supabase.auth.verifyOtp({ type: "signup", token_hash: parsed.data.tokenHash });
+  const { data, error } = await supabase.auth.verifyOtp({
+    type: parsed.data.verificationType,
+    token_hash: parsed.data.tokenHash,
+  });
   const user = data.user;
   if (error || !user?.email) {
-    return { error: "This verification link is invalid or has expired. Sign up again to get a new one." };
+    return { error: "This verification link has expired or was already used.", expired: true };
   }
 
   let profile = await getUserWithRole(user.id);
@@ -341,18 +502,19 @@ export async function confirmSignupEmailAction(
 
 /** The signed-in caller's own profile, for rendering the top bar/user menu. */
 export async function getCurrentUser(): Promise<CurrentUser | null> {
-  const supabase = createClient();
+  return loadCurrentUser();
+}
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+// Memoized per request: the shell, vendor scoping and page guards all read
+// the same user + role row.
+const loadCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  const user = await getAuthUser();
   if (!user) {
     return null;
   }
 
   return getUserWithRole(user.id);
-}
+});
 
 /** Session-derived vendor scope. Never accept a client-supplied company or vendor id. */
 export async function getVendorScope(): Promise<string | null> {

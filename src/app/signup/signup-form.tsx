@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +16,8 @@ export function SignupForm({ planId }: { planId?: string }) {
   const router = useRouter();
   const [state, setState] = useState<AccountSignupState>(initialState);
   const [isPending, startTransition] = useTransition();
+
+  const continueHref = planId ? `/signup/continue?plan=${planId}` : "/signup/continue";
 
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
@@ -60,6 +63,17 @@ export function SignupForm({ planId }: { planId?: string }) {
         <p role="alert" className="text-sm text-destructive">
           {state.error}
         </p>
+      ) : null}
+      {state.existingAccount ? (
+        <div role="alert" className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p>
+            <span className="font-semibold">You already started signing up with this email.</span> The password
+            doesn&apos;t match the one you chose then.
+          </p>
+          <Link href={continueHref} className="font-medium underline underline-offset-4">
+            Continue with your existing password, or reset it
+          </Link>
+        </div>
       ) : null}
       <Button type="submit" disabled={isPending}>
         {isPending ? "Creating account..." : "Create account"}

@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { isTransientAuthError } from "./middleware";
@@ -37,6 +38,25 @@ export function createClient() {
 }
 
 /**
+ * The verified Auth user for this request. getUser() is a network round
+ * trip to Supabase Auth, so it is memoized per request: the shell, sidebar,
+ * permission guards and page all share one call instead of each making
+ * their own.
+ */
+const getVerifiedAuth = cache(async () => {
+  const {
+    data: { user },
+    error,
+  } = await createClient().auth.getUser();
+  return { user, error };
+});
+
+/** Verified user or null — the cached equivalent of `supabase.auth.getUser()`. */
+export async function getAuthUser() {
+  return (await getVerifiedAuth()).user;
+}
+
+/**
  * Prefer a verified user; on a *transient* Auth outage only, fall back to
  * the unverified JWT in cookies so we don't kick them out mid-outage.
  * getSession() doesn't round-trip to the auth server, so treating every
@@ -46,18 +66,14 @@ export function createClient() {
  * middleware.ts uses for the same tradeoff.
  */
 export async function getRequestAuthUser() {
-  const supabase = createClient();
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  const { user, error } = await getVerifiedAuth();
   if (user) {
     return user;
   }
   if (error && isTransientAuthError(error)) {
     const {
       data: { session },
-    } = await supabase.auth.getSession();
+    } = await createClient().auth.getSession();
     return session?.user ?? null;
   }
   return null;

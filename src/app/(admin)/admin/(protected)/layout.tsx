@@ -5,7 +5,7 @@ import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { SignOutButton } from "@/components/layout/sign-out-button";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { companyShellStyle } from "@/lib/color";
-import { checkSuperAdmin } from "@/lib/permissions/super-admin";
+import { checkSuperAdmin } from "@/lib/permissions/check-super-admin";
 import { createClient, getRequestAuthUser } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {

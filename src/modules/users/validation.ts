@@ -37,6 +37,19 @@ export const signupPlanIdSchema = z.string().uuid();
 export const confirmSignupEmailSchema = z.object({
   tokenHash: z.string().regex(/^[a-f0-9]{20,128}$/i),
   planId: signupPlanIdSchema.optional(),
+  // "signup" for the first email; resends can be issued as magic links.
+  verificationType: z.enum(["signup", "magiclink"]).default("signup"),
+});
+
+export const continueSignupSchema = z.object({
+  email: z.string().trim().email("Enter a valid email"),
+  password: z.string().min(1, "Enter your password"),
+  planId: signupPlanIdSchema.optional(),
+});
+
+export const resendVerificationSchema = z.object({
+  email: z.string().trim().email("Enter a valid email"),
+  planId: signupPlanIdSchema.optional(),
 });
 
 export const accountSignupSchema = z

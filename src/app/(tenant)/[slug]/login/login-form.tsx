@@ -10,7 +10,7 @@ const LOGIN_ERRORS: Record<string, string> = {
   rate: "Try again later.",
   missing: "This company could not be found.",
   mismatch: "No account was found for this company.",
-  onboarding: "Finish creating your workspace before signing in here.",
+  onboarding: "This account hasn't finished setting up a workspace yet. Use Continue your signup at /signup/continue.",
   suspended: "This workspace is unavailable.",
 };
 
