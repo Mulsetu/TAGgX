@@ -2,7 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hashInviteToken } from "@/lib/invite-token";
-import type { CompanyUserSummary, CurrentUser, InviteDetails, PendingInviteSummary } from "./types";
+import type { CompanyUserSummary, CurrentUser, InviteDetails, PendingInviteSummary, SignupResumeProfile } from "./types";
 
 interface UserWithRoleRow {
   id: string;
@@ -12,6 +12,26 @@ interface UserWithRoleRow {
   vendor_id: string | null;
   is_company_admin: boolean;
   roles: { id: string; name: string } | null;
+}
+
+/**
+ * Where a returning self-serve signup left off. Service-role read, keyed by
+ * the user id that signInWithPassword just verified — the session cookie
+ * written in the same Server Action isn't readable by a fresh client yet.
+ */
+export async function getSignupResumeProfile(userId: string): Promise<SignupResumeProfile> {
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("users")
+    .select("company_id, is_active, company:companies!users_company_id_fkey(slug)")
+    .eq("id", userId)
+    .maybeSingle<{ company_id: string | null; is_active: boolean; company: { slug: string } | null }>();
+  return {
+    hasProfile: data !== null,
+    companyId: data?.company_id ?? null,
+    companySlug: data?.company?.slug ?? null,
+    isActive: data?.is_active !== false,
+  };
 }
 
 /**

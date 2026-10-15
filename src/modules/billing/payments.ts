@@ -115,13 +115,15 @@ export async function createSubscriptionCheckout(input: {
     };
   }
 
+  // Best-effort only: the subscription below doesn't reference the customer
+  // (Razorpay links one at checkout), so a customer-API failure — e.g.
+  // "Customer already exists" for someone retrying after an abandoned
+  // checkout — must never block payment.
   const customer = await createRazorpayCustomer({
     name: input.customerName,
     email: input.email,
   });
-  if ("error" in customer) {
-    return { error: customer.error };
-  }
+  const razorpayCustomerId = "error" in customer ? "" : customer.id;
 
   const subscription = await createRazorpaySubscription({
     razorpayPlanId,
@@ -138,7 +140,7 @@ export async function createSubscriptionCheckout(input: {
   const confirmToken = randomBytes(24).toString("hex");
   const attached = await attachRazorpaySubscription({
     companyId: input.companyId,
-    razorpayCustomerId: customer.id,
+    razorpayCustomerId,
     razorpaySubscriptionId: subscription.id,
     paymentConfirmToken: confirmToken,
   });

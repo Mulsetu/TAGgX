@@ -66,6 +66,18 @@ export async function openRazorpayCheckout(
         name: session.prefillName ?? undefined,
       },
       theme: { color: "#111827" },
+      // Cards only for now: plans renew by automatic card debit, so UPI,
+      // net banking and wallets are hidden. (Also disable them in the
+      // Razorpay Dashboard so the restriction holds outside this widget.)
+      config: {
+        display: {
+          blocks: {
+            card: { name: "Pay with card", instruments: [{ method: "card" }] },
+          },
+          sequence: ["block.card"],
+          preferences: { show_default_blocks: false },
+        },
+      },
       handler: (response: RazorpayCheckoutResult) => {
         resolve(response);
       },

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { MarketingFooter } from "@/components/marketing/site-footer";
 import { MarketingHeader } from "@/components/marketing/site-header";
+import { SignupSteps } from "@/components/marketing/signup-steps";
 import { getActivePlansForPublic, getPlanForSignup } from "@/modules/billing/actions";
 import { getCurrentUser } from "@/modules/users/actions";
 import { OnboardingForm } from "./onboarding-form";
@@ -36,15 +37,14 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
   return (
     <div className="flex min-h-svh flex-col bg-white text-[#003848]">
       <MarketingHeader />
-      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-6 px-4 py-10">
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-10">
+        <div className="max-w-lg">
+          <SignupSteps current={3} />
+        </div>
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3F7A22]">
-            Step 2 of 2
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">Create your company workspace</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Set up your company workspace</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            You become the Company Admin for this workspace. Plan limits still apply after setup.
-            Signed in as {user.email}.
+            You&apos;ll be the Company Admin. Signed in as {user.email}.
           </p>
         </div>
         {plans.length === 0 ? (

@@ -70,10 +70,26 @@ export interface UserActionState {
 
 export interface ConfirmSignupEmailState {
   error: string | null;
+  /** The link can't be used any more; the page offers to send a new one. */
+  expired?: boolean;
 }
 
 export interface AccountSignupState {
   error: string | null;
   checkEmail?: boolean;
   redirectPath?: string;
+  /** The email already has a verified account and the password didn't match. */
+  existingAccount?: boolean;
+}
+
+export interface ResendVerificationState {
+  error: string | null;
+  submitted?: boolean;
+}
+
+export interface SignupResumeProfile {
+  hasProfile: boolean;
+  companyId: string | null;
+  companySlug: string | null;
+  isActive: boolean;
 }

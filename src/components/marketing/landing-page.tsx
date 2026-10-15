@@ -288,6 +288,7 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
                         {formatInr(plan.priceMonthly)}
                         <span className="text-sm font-normal text-[#003848]/55"> / month</span>
                       </p>
+                      <p className="-mt-2 text-xs text-[#003848]/55">Billed monthly by card · cancel anytime</p>
                       <ul className="flex flex-col gap-2 text-sm text-[#003848]/75">
                         <li>Up to {plan.assetLimit.toLocaleString("en-IN")} assets</li>
                         <li>

@@ -1,7 +1,8 @@
 import "server-only";
+import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { TENANT_HEADERS } from "@/lib/tenant";
 import { isCurrentUserSuperAdmin } from "./super-admin";
 import {
@@ -37,9 +38,11 @@ interface RolePermissionsRow {
 /**
  * Loads the current session's role permissions. role_id comes from the
  * x-role-id header middleware.ts sets after verifying the session against
- * the DB — never trusted from a client-supplied value.
+ * the DB — never trusted from a client-supplied value. Memoized per
+ * request: the sidebar alone checks ~15 sections, and every one of them
+ * would otherwise re-read the same role row.
  */
-export async function getCurrentUserPermissions(): Promise<PermissionsMap> {
+export const getCurrentUserPermissions = cache(async (): Promise<PermissionsMap> => {
   const roleId = headers().get(TENANT_HEADERS.roleId);
   if (!roleId) {
     return {};
@@ -53,37 +56,32 @@ export async function getCurrentUserPermissions(): Promise<PermissionsMap> {
     .maybeSingle<RolePermissionsRow>();
 
   return data?.permissions ?? {};
-}
+});
 
 /**
- * Company Admin is a user flag, not a role-matrix row. Middleware stamps
- * x-is-company-admin after reading public.users — never from the client.
+ * Company Admin is a user flag, not a role-matrix row. Middleware stamps x-is-company-admin from the users row it already read
+ * for this request, so either value is authoritative. The DB lookup only
+ * runs for requests middleware did not annotate, once per request.
  */
-export function isCompanyAdminFromHeaders(): boolean {
-  return headers().get(TENANT_HEADERS.isCompanyAdmin) === "true";
-}
-
-export async function isCurrentUserCompanyAdmin(): Promise<boolean> {
-  if (isCompanyAdminFromHeaders()) {
-    return true;
+export const isCurrentUserCompanyAdmin = cache(async (): Promise<boolean> => {
+  const fromMiddleware = headers().get(TENANT_HEADERS.isCompanyAdmin);
+  if (fromMiddleware === "true" || fromMiddleware === "false") {
+    return fromMiddleware === "true";
   }
 
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
   if (!user) {
     return false;
   }
 
-  const { data } = await supabase
+  const { data } = await createClient()
     .from("users")
     .select("is_company_admin")
     .eq("id", user.id)
     .maybeSingle<{ is_company_admin: boolean }>();
 
   return data?.is_company_admin === true;
-}
+});
 
 /**
  * The guard every mutating server action should call first — never rely

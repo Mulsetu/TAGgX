@@ -16,7 +16,7 @@
             "patterns": [
               {
                 "group": ["@supabase/*", "@supabase/**"],
-                "message": "Pages, layouts, routes, and components must never import a Supabase client directly. Call into src/modules/*/actions.ts (the Controller layer) instead. See docs/FOLDER_STRUCTURE.md."
+                "message": "Pages, layouts, routes, and components must never import a Supabase client directly. Call into src/modules/*/actions.ts (the Controller layer) instead. See README.md (Architecture)."
               }
             ]
           }

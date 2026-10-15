@@ -10,12 +10,13 @@ export const metadata: Metadata = {
 };
 
 interface ConfirmPageProps {
-  searchParams: { token_hash?: string; plan?: string };
+  searchParams: { token_hash?: string; plan?: string; type?: string };
 }
 
 export default function ConfirmEmailPage({ searchParams }: ConfirmPageProps) {
   const tokenHash = typeof searchParams.token_hash === "string" ? searchParams.token_hash : "";
   const planId = typeof searchParams.plan === "string" ? searchParams.plan : "";
+  const verificationType = searchParams.type === "magiclink" ? "magiclink" : "";
 
   return (
     <div className="flex min-h-svh flex-col bg-white text-[#003848]">
@@ -27,7 +28,7 @@ export default function ConfirmEmailPage({ searchParams }: ConfirmPageProps) {
             <p className="text-sm leading-6 text-muted-foreground">
               Confirm your email to continue to company setup, plan selection, and payment.
             </p>
-            <ConfirmEmailForm tokenHash={tokenHash} planId={planId} />
+            <ConfirmEmailForm tokenHash={tokenHash} planId={planId} verificationType={verificationType} />
           </>
         ) : (
           <p role="alert" className="text-sm text-destructive">

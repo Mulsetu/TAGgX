@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -57,14 +58,24 @@ export interface WorkspaceRuntime {
   planModules: FeatureModule[] | null;
 }
 
-async function resolvePlanModules(companyId: string): Promise<FeatureModule[] | null> {
-  const subscription = await getSubscriptionForCompany(companyId);
+/**
+ * Request-scoped subscription read. Module checks and the read-only billing
+ * gate (tenant-access.ts) both need it on almost every page, so they share
+ * one query per request.
+ */
+export const getCompanySubscription = cache(getSubscriptionForCompany);
+
+/** Request-scoped plan read, shared by module checks and the asset quota. */
+export const getCompanyPlan = cache(getPlanById);
+
+const resolvePlanModules = cache(async (companyId: string): Promise<FeatureModule[] | null> => {
+  const subscription = await getCompanySubscription(companyId);
   if (!subscription) {
     return null;
   }
-  const plan = await getPlanById(subscription.planId);
+  const plan = await getCompanyPlan(subscription.planId);
   return parsePlanModules(plan?.includedModules ?? null);
-}
+});
 
 export async function resolveEnabledModulesForCompany(companyId: string): Promise<EnabledModules> {
   const supabase = createAdminClient();
@@ -78,25 +89,17 @@ export async function resolveEnabledModulesForCompany(companyId: string): Promis
   return clampModulesToPlan(company, planModules);
 }
 
+/** Plan entitlement ∩ company toggles, from the request's cached workspace runtime. */
 export async function getEnabledModules(): Promise<EnabledModules> {
-  const companyId = headers().get(TENANT_HEADERS.companyId);
-  if (!companyId) {
-    return parseEnabledModules(null);
-  }
-
-  const supabase = createClient();
-  const { data } = await supabase
-    .from("company_settings")
-    .select("enabled_modules")
-    .eq("company_id", companyId)
-    .maybeSingle<{ enabled_modules: unknown }>();
-
-  const company = parseEnabledModules(data?.enabled_modules);
-  const planModules = await resolvePlanModules(companyId);
-  return clampModulesToPlan(company, planModules);
+  return (await getWorkspaceRuntime()).modules;
 }
 
-export async function getWorkspaceRuntime(): Promise<WorkspaceRuntime> {
+/**
+ * Memoized per request — module checks run dozens of times per page
+ * (sidebar, dashboard widgets, guards), and each used to re-read
+ * company_settings, the subscription and the plan.
+ */
+export const getWorkspaceRuntime = cache(async (): Promise<WorkspaceRuntime> => {
   const companyId = headers().get(TENANT_HEADERS.companyId);
   if (!companyId) {
     const modules = parseEnabledModules(null);
@@ -115,11 +118,11 @@ export async function getWorkspaceRuntime(): Promise<WorkspaceRuntime> {
   const supabase = createClient();
   const fullSelect =
     "enabled_modules, asset_field_config, dashboard_widgets, dashboard_layouts, workflow_config, department_catalog, disposal_methods";
-  const { data, error } = await supabase
-    .from("company_settings")
-    .select(fullSelect)
-    .eq("company_id", companyId)
-    .maybeSingle<SettingsRow>();
+  // Independent reads — fetch the plan alongside the settings row rather than after it.
+  const [{ data, error }, planModules] = await Promise.all([
+    supabase.from("company_settings").select(fullSelect).eq("company_id", companyId).maybeSingle<SettingsRow>(),
+    resolvePlanModules(companyId),
+  ]);
 
   const row: SettingsRow | null = data ?? null;
   if (error || !row) {
@@ -128,7 +131,6 @@ export async function getWorkspaceRuntime(): Promise<WorkspaceRuntime> {
       .select("enabled_modules, asset_field_config, dashboard_widgets, workflow_config, department_catalog, disposal_methods")
       .eq("company_id", companyId)
       .maybeSingle<Omit<SettingsRow, "dashboard_layouts">>();
-    const planModules = await resolvePlanModules(companyId);
     const modules = clampModulesToPlan(parseEnabledModules(fallback.data?.enabled_modules), planModules);
     return {
       modules,
@@ -142,7 +144,6 @@ export async function getWorkspaceRuntime(): Promise<WorkspaceRuntime> {
     };
   }
 
-  const planModules = await resolvePlanModules(companyId);
   const modules = clampModulesToPlan(parseEnabledModules(row.enabled_modules), planModules);
   return {
     modules,
@@ -154,7 +155,7 @@ export async function getWorkspaceRuntime(): Promise<WorkspaceRuntime> {
     disposalMethods: parseStringCatalog(data?.disposal_methods),
     planModules,
   };
-}
+});
 
 /**
  * Tenant feature flags only. Super-admin RBAC bypass must not treat every

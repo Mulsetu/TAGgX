@@ -43,6 +43,7 @@ import type {
   ExtraAssetOrderState,
   PaymentMethod,
   SubscriptionStatus,
+  SubscriptionType,
 } from "@/modules/billing/types";
 
 const initialState: ExtraAssetOrderState = { error: null };
@@ -50,7 +51,7 @@ const initialAction: BillingActionState = { error: null };
 const DAY = 86_400_000;
 
 const METHOD_LABELS: Record<PaymentMethod, string> = {
-  razorpay: "Razorpay",
+  razorpay: "Card (Razorpay)",
   upi: "UPI",
   bank_transfer: "Bank transfer",
   neft: "NEFT",
@@ -59,6 +60,9 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
   cheque: "Cheque",
   other: "Other",
 };
+
+/** Arranged by the TagX team at no charge — no card is ever needed. */
+const NO_CHARGE_TYPES: SubscriptionType[] = ["demo", "complimentary", "trial"];
 
 const STATUS_BADGE: Record<SubscriptionStatus, { label: string; className: string }> = {
   active: { label: "Active", className: "bg-emerald-50 text-emerald-700" },
@@ -289,7 +293,7 @@ export function BillingPanel({
   const cancelling = sub !== null && !sub.autoRenew;
   const badge = sub ? STATUS_BADGE[sub.status] : null;
   const isAdmin = overview.isCompanyAdmin;
-  const lastMethod = payments.find((payment) => payment.paymentStatus === "paid")?.paymentMethod ?? null;
+  const noCharge = !plan || plan.priceMonthly <= 0 || (sub !== null && NO_CHARGE_TYPES.includes(sub.subscriptionType));
 
   return (
     <div className="flex max-w-5xl flex-col gap-4">
@@ -316,7 +320,7 @@ export function BillingPanel({
             {plan && canEdit && needsPlanPayment ? (
               <Button type="button" onClick={handlePayPlan} disabled={isPayingPlan}>
                 <CreditCard className="size-4" />
-                {isPayingPlan ? "Opening Razorpay..." : `Pay ${formatInr(plan.priceMonthly)}`}
+                {isPayingPlan ? "Opening secure checkout..." : `Add card & pay ${formatInr(plan.priceMonthly)}`}
               </Button>
             ) : null}
             {isAdmin && overview.plans.length > 0 ? <ChangePlanDialog overview={overview} currentPlanId={currentPlanId} /> : null}
@@ -369,10 +373,10 @@ export function BillingPanel({
         ) : null}
 
         {quota.subscriptionStatus === "pending_payment" ? (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Payment is due — pay now to unlock adding assets.</p>
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Payment is due — add a card to start automatic monthly payments and unlock adding assets.</p>
         ) : null}
         {quota.subscriptionStatus === "past_due" || quota.subscriptionStatus === "halted" ? (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">The last payment failed. Pay again to restore full access.</p>
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">The last card charge failed. Pay with a working card to restore full access.</p>
         ) : null}
         {state.error ? <p role="alert" className="text-sm text-destructive">{state.error}</p> : null}
       </section>
@@ -399,19 +403,26 @@ export function BillingPanel({
         <Card title="Payment method" icon={<CreditCard className="size-4 text-slate-500" />}>
           {sub?.onlineBilling ? (
             <p className="text-sm text-slate-600">
-              Paid online through <span className="font-medium text-slate-900">Razorpay</span> — card, UPI or net banking.
-              Your card details are stored by Razorpay, never by TagX. To change your card, pay with the new one at the next
-              payment prompt.
+              <span className="font-medium text-slate-900">Card autopay is on.</span>{" "}
+              {plan ? formatInr(plan.priceMonthly) : "Your plan"} is charged to your card automatically every month
+              {cancelling ? " — no further charges after the current period, since the plan is set to end" : " until you cancel"}.
+              Card details are held securely by Razorpay, never by TagX.
+            </p>
+          ) : noCharge ? (
+            <p className="text-sm text-slate-600">
+              <span className="font-medium text-slate-900">No payment needed.</span> This workspace is on a plan arranged
+              by the TagX team at no charge.
+            </p>
+          ) : needsPlanPayment ? (
+            <p className="text-sm text-slate-600">
+              <span className="font-medium text-slate-900">No card on file.</span> Use{" "}
+              <span className="font-medium text-slate-900">Add card &amp; pay</span> above — your card is charged now and then
+              automatically every month until you cancel.
             </p>
           ) : (
             <p className="text-sm text-slate-600">
-              Billed offline by the TagX team
-              {lastMethod ? (
-                <>
-                  {" "}— last paid by <span className="font-medium text-slate-900">{METHOD_LABELS[lastMethod]}</span>
-                </>
-              ) : null}
-              . Bank transfer, UPI, NEFT/RTGS and cheque are accepted; contact TagX to change how you pay.
+              Your current billing period was arranged with the TagX team, so no card is on file yet. Contact TagX to move
+              to automatic monthly card payments.
             </p>
           )}
           {plan && canEdit && quota.subscriptionStatus === "active" ? (
@@ -420,7 +431,7 @@ export function BillingPanel({
                 <Package className="size-4 text-slate-500" /> Need more assets?
               </p>
               <p className="text-xs text-slate-500">
-                Each pack adds {plan.extraAssetQuantity.toLocaleString("en-IN")} assets for {formatInr(plan.extraAssetPrice)}, paid now via Razorpay.
+                Each pack adds {plan.extraAssetQuantity.toLocaleString("en-IN")} assets for {formatInr(plan.extraAssetPrice)}, a one-time card payment.
               </p>
               <div className="flex items-end gap-2">
                 <div className="flex flex-col gap-1">
@@ -428,7 +439,7 @@ export function BillingPanel({
                   <Input id="packs" name="packs" type="number" min={1} max={50} defaultValue={1} required className="w-20" />
                 </div>
                 <Button type="submit" variant="outline" disabled={isPending}>
-                  {isPending ? "Opening Razorpay..." : "Buy extra assets"}
+                  {isPending ? "Opening secure checkout..." : "Buy extra assets"}
                 </Button>
               </div>
               {state.success ? <p className="text-sm text-emerald-600">Payment received — extra assets added.</p> : null}

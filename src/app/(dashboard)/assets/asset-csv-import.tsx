@@ -1,16 +1,21 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { downloadFile } from "@/lib/download";
 import { toCsv } from "@/lib/csv";
-import { importAssetsCsvAction } from "@/modules/assets/actions";
+import { getAssetImportTemplateAction, importAssetsCsvAction } from "@/modules/assets/actions";
 import type { AssetImportColumn, AssetImportState, AssetImportTemplate } from "@/modules/assets/types";
 
 const initialState: AssetImportState = { error: null };
+const EMPTY_TEMPLATE: AssetImportTemplate = { core: [], fields: [], categories: [] };
+
+function lockedColumns(template: AssetImportTemplate): Set<string> {
+  return new Set([...template.core, ...template.fields.filter((field) => field.required)].map((c) => c.column));
+}
 
 function ColumnCheckbox({
   column,
@@ -48,17 +53,56 @@ function ColumnCheckbox({
   );
 }
 
-export function AssetCsvImport({ template }: { template: AssetImportTemplate }) {
+/**
+ * The column template (catalogs + custom fields) is only needed once someone
+ * opens the picker or downloads the sample, so it is fetched on demand
+ * rather than on every /assets/new render.
+ */
+export function AssetCsvImport() {
   const router = useRouter();
   const [state, setState] = useState<AssetImportState>(initialState);
   const [isPending, startTransition] = useTransition();
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [loadedTemplate, setLoadedTemplate] = useState<AssetImportTemplate | null>(null);
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const templateRequest = useRef<Promise<AssetImportTemplate> | null>(null);
+  const template = loadedTemplate ?? EMPTY_TEMPLATE;
 
-  const locked = useMemo(
-    () => new Set([...template.core, ...template.fields.filter((field) => field.required)].map((c) => c.column)),
-    [template],
-  );
+  const locked = useMemo(() => lockedColumns(template), [template]);
+
+  function loadTemplate(): Promise<AssetImportTemplate> {
+    if (loadedTemplate) {
+      return Promise.resolve(loadedTemplate);
+    }
+    if (!templateRequest.current) {
+      setTemplateLoading(true);
+      templateRequest.current = getAssetImportTemplateAction()
+        .then((loaded) => {
+          setLoadedTemplate(loaded);
+          return loaded;
+        })
+        .catch((error: unknown) => {
+          // Let the next click retry instead of caching the failure.
+          templateRequest.current = null;
+          throw error;
+        })
+        .finally(() => setTemplateLoading(false));
+    }
+    return templateRequest.current;
+  }
+
+  async function togglePicker() {
+    if (!pickerOpen) {
+      try {
+        await loadTemplate();
+      } catch {
+        setState({ error: "Couldn't load the import columns. Please try again." });
+        return;
+      }
+    }
+    setPickerOpen((open) => !open);
+  }
 
   function toggle(column: string) {
     setChosen((current) => {
@@ -81,17 +125,25 @@ export function AssetCsvImport({ template }: { template: AssetImportTemplate }) 
     });
   }
 
-  const isOn = (column: string) => locked.has(column) || chosen.has(column);
-
-  function downloadSample() {
+  async function downloadSample() {
+    let current: AssetImportTemplate;
+    try {
+      current = await loadTemplate();
+    } catch {
+      setState({ error: "Couldn't load the import columns. Please try again." });
+      return;
+    }
+    // Read from `current`, not render state: on the first click the template
+    // has only just arrived and this render's `template` is still empty.
+    const required = lockedColumns(current);
     const ordered: AssetImportColumn[] = [
-      ...template.core,
-      ...template.fields.filter((field) => isOn(field.column)),
+      ...current.core,
+      ...current.fields.filter((field) => required.has(field.column) || chosen.has(field.column)),
     ];
     const seen = new Set(ordered.map((column) => column.column));
     // Example row's category: the first one whose fields were ticked, so its sample values line up.
-    const exampleCategory = template.categories.find((group) => group.columns.some((c) => chosen.has(c.column)));
-    for (const group of template.categories) {
+    const exampleCategory = current.categories.find((group) => group.columns.some((c) => chosen.has(c.column)));
+    for (const group of current.categories) {
       for (const column of group.columns) {
         if (chosen.has(column.column) && !seen.has(column.column)) {
           seen.add(column.column);
@@ -137,16 +189,18 @@ export function AssetCsvImport({ template }: { template: AssetImportTemplate }) 
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={() => setPickerOpen((open) => !open)}>
-          {pickerOpen ? "Hide columns" : "Choose columns"}
+        <Button type="button" variant="outline" size="sm" onClick={togglePicker} disabled={templateLoading}>
+          {pickerOpen ? "Hide columns" : templateLoading ? "Loading..." : "Choose columns"}
         </Button>
-        <Button type="button" size="sm" onClick={downloadSample}>
+        <Button type="button" size="sm" onClick={downloadSample} disabled={templateLoading}>
           Download sample CSV
         </Button>
-        <span className="text-xs text-slate-500">
-          {template.core.length + requiredFields.length} required
-          {extraCount > 0 ? ` + ${extraCount} chosen` : ""} column{template.core.length + requiredFields.length + extraCount === 1 ? "" : "s"}
-        </span>
+        {loadedTemplate ? (
+          <span className="text-xs text-slate-500">
+            {template.core.length + requiredFields.length} required
+            {extraCount > 0 ? ` + ${extraCount} chosen` : ""} column{template.core.length + requiredFields.length + extraCount === 1 ? "" : "s"}
+          </span>
+        ) : null}
       </div>
 
       {pickerOpen ? (

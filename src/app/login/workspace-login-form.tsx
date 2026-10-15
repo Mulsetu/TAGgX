@@ -53,6 +53,13 @@ export function WorkspaceLoginForm({ defaultSlug, errorCode }: { defaultSlug: st
         </Link>
         .
       </p>
+      <p className="text-center text-xs leading-5 text-muted-foreground">
+        Started signing up but didn&apos;t finish?{" "}
+        <Link href="/signup/continue" className="underline-offset-4 hover:underline">
+          Continue your signup
+        </Link>
+        .
+      </p>
     </form>
   );
 }

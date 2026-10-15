@@ -169,6 +169,31 @@ export async function createSignupAccount(input: {
 }
 
 /**
+ * A fresh email-verification token for an account that already exists but
+ * was never confirmed (its first link expired or got lost). Uses a magic
+ * link rather than re-running signup so an unauthenticated request can
+ * never change the account's password. Null when there is no such account
+ * or it is already confirmed — callers must not reveal which.
+ */
+export async function createSignupResendToken(
+  email: string,
+): Promise<{ tokenHash: string; verificationType: "signup" | "magiclink"; fullName: string | null } | null> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase.auth.admin.generateLink({ type: "magiclink", email });
+  if (error || !data.user || data.user.email_confirmed_at || !data.properties?.hashed_token) {
+    return null;
+  }
+  const fullName = typeof data.user.user_metadata?.full_name === "string" ? data.user.user_metadata.full_name : null;
+  return {
+    tokenHash: data.properties.hashed_token,
+    // Auth may mint a signup-confirmation token for an unconfirmed user;
+    // /auth/confirm must verify it with the type it was actually issued as.
+    verificationType: data.properties.verification_type === "signup" ? "signup" : "magiclink",
+    fullName,
+  };
+}
+
+/**
  * Password reset: a one-time recovery token for this address, WITHOUT
  * Supabase sending its own email (the caller delivers it through Brevo).
  * Null when there is no such account — callers must not reveal that.
