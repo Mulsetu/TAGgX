@@ -1,6 +1,6 @@
 import "server-only";
 import { TAGX_LOGO_SRC, TAGX_TEAL } from "@/lib/brand";
-import { getSiteUrl } from "@/lib/site";
+import { getPublicSiteUrl } from "@/lib/site";
 
 // The only file in this codebase that talks to Brevo. Every outward-facing
 // function below funnels through sendTransactionalEmail(); nothing else
@@ -97,31 +97,61 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function renderLayout(
-  title: string,
-  bodyHtml: string,
-  brand?: {
-    companyName: string;
-    logoUrl?: string | null;
-    contactLine?: string | null;
-    primaryColor?: string | null;
-  },
-): string {
-  const companyName = brand?.companyName || "TagX";
-  const accent = brand?.primaryColor || TAGX_TEAL;
-  const logoSrc = brand?.logoUrl || `${getSiteUrl()}${TAGX_LOGO_SRC}`;
-  const logo = `<img src="${escapeHtml(logoSrc)}" alt="${escapeHtml(companyName)}" style="max-height:48px;max-width:220px;margin-bottom:16px;" />`;
-  const contact = brand?.contactLine
-    ? `<p style="color:#737373;font-size:12px;margin:8px 0 0;">${escapeHtml(brand.contactLine)}</p>`
+export interface EmailBrand {
+  companyName: string;
+  /** Absolute, publicly reachable URL — mail clients fetch it from their own servers. */
+  logoUrl?: string | null;
+  primaryColor?: string | null;
+}
+
+const HEX_COLOR = /^#[0-9a-f]{3,8}$/i;
+
+/**
+ * Table-based layout (what Gmail/Outlook render reliably): company logo or
+ * name on top, a white card with the title, body and optional button, and a
+ * short footer. No contact details — emails get forwarded, so the
+ * workspace's phone/address/email never go in them.
+ */
+function renderLayout(title: string, bodyHtml: string, brand?: EmailBrand, cta?: { label: string; url: string }): string {
+  const companyName = escapeHtml(brand?.companyName || "TagX");
+  const accent = brand?.primaryColor && HEX_COLOR.test(brand.primaryColor) ? brand.primaryColor : TAGX_TEAL;
+  const tagxLogo = `${getPublicSiteUrl()}${TAGX_LOGO_SRC}`;
+  const header = brand?.logoUrl
+    ? `<img src="${escapeHtml(brand.logoUrl)}" alt="${companyName}" height="40" style="display:block;height:40px;max-width:200px;border:0;font-size:18px;font-weight:600;color:${accent};" />`
+    : brand
+      ? `<span style="font-size:20px;font-weight:700;color:${accent};">${companyName}</span>`
+      : `<img src="${escapeHtml(tagxLogo)}" alt="TagX" height="36" style="display:block;height:36px;border:0;font-size:20px;font-weight:700;color:${accent};" />`;
+  const button = cta
+    ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 4px;"><tr><td style="border-radius:8px;background:${accent};">
+         <a href="${escapeHtml(cta.url)}" style="display:inline-block;padding:11px 20px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">${escapeHtml(cta.label)}</a>
+       </td></tr></table>`
     : "";
+  const footer = brand
+    ? `You're receiving this because you're part of <strong>${companyName}</strong>.`
+    : "You're receiving this because of your account.";
+
   return `<!doctype html>
 <html>
-  <body style="font-family: -apple-system, sans-serif; color: #171717; max-width: 480px; margin: 0 auto; padding: 24px 16px;">
-    ${logo}
-    <h1 style="font-size: 18px; margin: 0 0 16px; color: ${escapeHtml(accent)};">${escapeHtml(title)}</h1>
-    ${bodyHtml}
-    <p style="color: #737373; font-size: 12px; margin-top: 32px;">${escapeHtml(companyName)}</p>
-    ${contact}
+  <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>${escapeHtml(title)}</title></head>
+  <body style="margin:0;padding:0;background:#f4f6f8;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;">
+      <tr><td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+          <tr><td style="padding:0 4px 20px;">${header}</td></tr>
+          <tr><td style="background:#ffffff;border:1px solid #e5e7eb;border-top:4px solid ${accent};border-radius:12px;padding:28px 28px 24px;color:#1f2937;font-size:15px;line-height:1.6;">
+            <h1 style="margin:0 0 12px;font-size:20px;line-height:1.3;color:#111827;">${escapeHtml(title)}</h1>
+            ${bodyHtml}
+            ${button}
+          </td></tr>
+          <tr><td style="padding:20px 4px 0;color:#6b7280;font-size:12px;line-height:1.5;">
+            ${footer}
+            <div style="margin-top:12px;">
+              <a href="${getPublicSiteUrl()}" style="text-decoration:none;color:#9ca3af;">Powered by TagX</a>
+            </div>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
   </body>
 </html>`;
 }
@@ -470,15 +500,14 @@ export async function sendTemplatedEmail(params: {
   htmlBody: string;
   textBody: string;
   vars: Record<string, string>;
-  brand?: {
-    companyName: string;
-    logoUrl?: string | null;
-    contactLine?: string | null;
-    primaryColor?: string | null;
-  };
+  brand?: EmailBrand;
 }): Promise<SendEmailResult> {
   const subject = interpolateTemplate(params.subject, params.vars, false);
-  const htmlContent = renderLayout(subject, interpolateTemplate(params.htmlBody, params.vars, false), params.brand);
+  // Vars are escaped in the HTML body: asset names and ticket titles can come from public QR reports.
+  const bodyHtml = interpolateTemplate(params.htmlBody, params.vars, true);
+  const assetUrl = params.vars.asset_url;
+  const cta = assetUrl && /^https?:\/\//i.test(assetUrl) ? { label: "View details", url: assetUrl } : undefined;
+  const htmlContent = renderLayout(subject, bodyHtml, params.brand, cta);
   const textContent = interpolateTemplate(params.textBody, params.vars, false);
   return sendTransactionalEmail({
     to: [{ email: params.to, name: params.toName }],

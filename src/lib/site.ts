@@ -48,3 +48,13 @@ export function getSiteUrl(): string {
 
   return "http://localhost:3000";
 }
+
+/**
+ * Origin for anything fetched by someone else's server, like images in an
+ * email: Gmail and other mail clients can't reach localhost, so local dev
+ * falls back to the production domain.
+ */
+export function getPublicSiteUrl(): string {
+  const origin = getSiteUrl();
+  return origin.includes("localhost") || origin.includes("127.0.0.1") ? SITE_PRODUCTION_URL : origin;
+}
