@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { mediaSrc } from "@/lib/media-url";
 import { Wrench } from "lucide-react";
 import { markMissingAction } from "@/modules/audits/actions";
@@ -216,7 +216,7 @@ export function AuditItemTable({
             <form action={handleMissingPhoto} className="flex flex-col gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="missing-photo">Photo</Label>
-                <Input id="missing-photo" name="photo" type="file" accept="image/*" required />
+                <FileDropzone id="missing-photo" name="photo" accept="image/*" hint="JPG, PNG or WebP" required />
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={isPending}>

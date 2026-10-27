@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { downloadFile } from "@/lib/download";
 import { toCsv } from "@/lib/csv";
 import { getAssetImportTemplateAction, importAssetsCsvAction } from "@/modules/assets/actions";
@@ -272,8 +272,10 @@ export function AssetCsvImport() {
         </div>
       ) : null}
 
-      <form action={handleImport} className="flex flex-wrap items-center gap-3">
-        <Input name="file" type="file" accept=".csv,text/csv" required className="max-w-xs bg-white" />
+      <form action={handleImport} className="flex flex-wrap items-start gap-3">
+        <div className="w-full max-w-sm">
+          <FileDropzone id="csvFile" name="file" accept=".csv,text/csv" maxBytes={2 * 1024 * 1024} hint="CSV file, up to 2 MB" compact required />
+        </div>
         <Button type="submit" disabled={isPending}>
           {isPending ? "Importing..." : "Import assets"}
         </Button>

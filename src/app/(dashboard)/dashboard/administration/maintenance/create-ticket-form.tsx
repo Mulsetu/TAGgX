@@ -29,6 +29,7 @@ export function CreateTicketForm({
   const [state, setState] = useState<MaintenanceFormState>(initialState);
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  const [dueAt, setDueAt] = useState("");
 
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
@@ -36,6 +37,7 @@ export function CreateTicketForm({
       setState(result);
       if (!result.error) {
         setOpen(false);
+        setDueAt("");
         router.refresh();
       }
     });
@@ -100,7 +102,10 @@ export function CreateTicketForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="dueAt">Due date</Label>
-          <Input id="dueAt" name="dueAt" type="date" />
+          <Input id="dueAt" name="dueAt" type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
+          {dueAt ? null : (
+            <p className="text-xs text-amber-700">Without a due date, no reminder emails are sent.</p>
+          )}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="vendorId">Vendor</Label>

@@ -195,6 +195,7 @@ export async function updateTicketAction(
   const parsed = updateTicketSchema.safeParse({
     status: formData.get("status"),
     assignedTo: formData.get("assignedTo"),
+    dueAt: formData.get("dueAt"),
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
@@ -212,7 +213,7 @@ export async function updateTicketAction(
     }
   }
 
-  const result = await updateTicket(id, parsed.data.status, parsed.data.assignedTo);
+  const result = await updateTicket(id, parsed.data.status, parsed.data.assignedTo, parsed.data.dueAt);
   if ("error" in result) {
     return { error: result.error };
   }

@@ -3,8 +3,9 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarClock, Mail, QrCode, Wrench } from "lucide-react";
+import { CalendarClock, Mail, QrCode, TriangleAlert, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { MAINTENANCE_STATUSES } from "@/modules/maintenance/types";
@@ -48,11 +49,14 @@ function TicketCard({ ticket, users }: { ticket: MaintenanceTicketSummary; users
   const [isPending, startTransition] = useTransition();
   const overdue = isOverdue(ticket);
 
-  function update(status: string, assignedTo: string) {
+  const active = ticket.status === "open" || ticket.status === "in_progress";
+
+  function update(changes: { status?: string; assignedTo?: string; dueAt?: string }) {
     setError(null);
     const formData = new FormData();
-    formData.set("status", status);
-    formData.set("assignedTo", assignedTo);
+    formData.set("status", changes.status ?? ticket.status);
+    formData.set("assignedTo", changes.assignedTo ?? ticket.assignedToId ?? "");
+    formData.set("dueAt", changes.dueAt ?? ticket.dueAt ?? "");
     startTransition(async () => {
       const result = await updateTicketAction(ticket.id, initialState, formData);
       if (result.error) {
@@ -115,11 +119,11 @@ function TicketCard({ ticket, users }: { ticket: MaintenanceTicketSummary; users
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 @md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 @md:grid-cols-3">
         <NativeSelect
           value={ticket.status}
           disabled={isPending}
-          onChange={(event) => update(event.target.value, ticket.assignedToId ?? "")}
+          onChange={(event) => update({ status: event.target.value })}
           aria-label={`Status for ${ticket.title}`}
         >
           {MAINTENANCE_STATUSES.map((status) => (
@@ -131,7 +135,7 @@ function TicketCard({ ticket, users }: { ticket: MaintenanceTicketSummary; users
         <NativeSelect
           value={ticket.assignedToId ?? ""}
           disabled={isPending}
-          onChange={(event) => update(ticket.status, event.target.value)}
+          onChange={(event) => update({ assignedTo: event.target.value })}
           aria-label={`Assignee for ${ticket.title}`}
         >
           <option value="">Unassigned</option>
@@ -141,7 +145,21 @@ function TicketCard({ ticket, users }: { ticket: MaintenanceTicketSummary; users
             </option>
           ))}
         </NativeSelect>
+        <Input
+          type="date"
+          value={ticket.dueAt ?? ""}
+          disabled={isPending}
+          onChange={(event) => update({ dueAt: event.target.value })}
+          aria-label={`Due date for ${ticket.title}`}
+          className={cn(active && !ticket.dueAt && "border-amber-300")}
+        />
       </div>
+      {active && !ticket.dueAt ? (
+        <p className="flex items-center gap-1 text-xs text-amber-700">
+          <TriangleAlert className="size-3" />
+          No due date, so no reminder emails will be sent for this ticket.
+        </p>
+      ) : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </li>
   );

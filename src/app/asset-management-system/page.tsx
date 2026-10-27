@@ -83,8 +83,8 @@ export default function AssetManagementSystemPage() {
       />
       <MarketingHeader />
       <main>
-        <section className="marketing-hero px-4 py-16 md:px-6 md:py-24">
-          <div className="mx-auto grid w-full max-w-6xl items-center gap-10 lg:grid-cols-2">
+        <section className="marketing-hero px-4 py-16 md:px-6 lg:px-10 xl:px-16 md:py-24">
+          <div className="mx-auto grid w-full max-w-[100rem] items-center gap-10 lg:grid-cols-2">
             <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#3F7A22]">
               Asset management system
@@ -126,8 +126,8 @@ export default function AssetManagementSystemPage() {
           </div>
         </section>
 
-        <section className="border-t border-[#005068]/10 px-4 py-16 md:px-6">
-          <div className="mx-auto grid w-full max-w-5xl gap-6 md:grid-cols-3">
+        <section className="border-t border-[#005068]/10 px-4 py-16 md:px-6 lg:px-10 xl:px-16">
+          <div className="mx-auto grid w-full max-w-[100rem] gap-6 md:grid-cols-3">
             <article className="rounded-xl border border-[#005068]/10 p-6">
               <h2 className="text-lg font-semibold">Register and tag</h2>
               <p className="mt-2 text-sm leading-6 text-[#003848]/70">
@@ -152,7 +152,7 @@ export default function AssetManagementSystemPage() {
           </div>
         </section>
 
-        <section className="border-t border-[#005068]/10 bg-[#F2F7F8] px-4 py-16 md:px-6">
+        <section className="border-t border-[#005068]/10 bg-[#F2F7F8] px-4 py-16 md:px-6 lg:px-10 xl:px-16">
           <div className="mx-auto w-full max-w-3xl">
             <h2 className="text-2xl font-semibold tracking-tight">
               Asset management system FAQs

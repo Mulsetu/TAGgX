@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
@@ -102,7 +102,7 @@ export function AuditTagVerifyForm({ context }: { context: AuditTagContext }) {
       </div>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="photo">Exception photo</Label>
-        <Input id="photo" name="photo" type="file" accept="image/*" />
+        <FileDropzone id="photo" name="photo" accept="image/*" capture="environment" hint="JPG, PNG or WebP" />
       </div>
       {context.item.status !== "unverified" ? (
         <label className="flex items-center gap-2 text-sm">

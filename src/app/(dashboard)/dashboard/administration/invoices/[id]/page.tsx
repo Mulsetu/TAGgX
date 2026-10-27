@@ -1,28 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Download } from "lucide-react";
 import { TagXLogo } from "@/components/layout/brand-logo";
+import { Button } from "@/components/ui/button";
 import { assertPermission } from "@/lib/permissions/has-permission";
 import { formatInr } from "@/lib/money";
+import { INVOICE_METHOD_LABELS as METHOD_LABELS, formatInvoiceDate as formatDate, invoiceNumber } from "@/lib/invoice";
 import { getInvoiceForCurrentCompany } from "@/modules/billing/actions";
 import { PrintButton } from "./print-button";
-
-const METHOD_LABELS: Record<string, string> = {
-  razorpay: "Card (Razorpay)",
-  upi: "UPI",
-  bank_transfer: "Bank transfer",
-  neft: "NEFT",
-  rtgs: "RTGS",
-  cash: "Cash",
-  cheque: "Cheque",
-  other: "Other",
-};
-
-function formatDate(iso: string): string {
-  return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" }).format(
-    new Date(iso),
-  );
-}
 
 /** Receipt-style invoice for one payment — opens from Billing › Invoices & payments, and prints cleanly to PDF. */
 export default async function InvoicePage({ params }: { params: { id: string } }) {
@@ -33,7 +18,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   }
 
   const { payment, plan, billingContact, companySlug } = invoice;
-  const number = `INV-${payment.paymentDate.slice(0, 10).replace(/-/g, "")}-${payment.id.slice(0, 6).toUpperCase()}`;
+  const number = invoiceNumber(payment);
   const paid = payment.paymentStatus === "paid";
 
   return (
@@ -45,7 +30,15 @@ export default async function InvoicePage({ params }: { params: { id: string } }
         >
           <ChevronLeft className="size-4" /> Billing
         </Link>
-        <PrintButton />
+        <div className="flex flex-wrap gap-2">
+          <PrintButton />
+          <Button asChild>
+            <a href={`/dashboard/administration/invoices/${payment.id}/pdf`} download>
+              <Download className="size-4" />
+              Download PDF
+            </a>
+          </Button>
+        </div>
       </div>
 
       <article className="invoice-sheet mx-auto w-full max-w-3xl rounded-xl border border-slate-200 bg-white p-6 sm:p-10 print:max-w-none print:rounded-none print:border-0 print:p-0">

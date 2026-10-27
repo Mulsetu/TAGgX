@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CAPABILITIES, LANDING_FAQS, PRODUCT_SHOTS } from "@/components/marketing/content";
+import { CAPABILITIES, LANDING_FAQS, PRODUCT_SHOTS, STORAGE_ADDON } from "@/components/marketing/content";
 import { LandingJsonLd } from "@/components/marketing/json-ld";
 import { ProductShot } from "@/components/marketing/product-shot";
 import { MarketingFooter } from "@/components/marketing/site-footer";
@@ -7,6 +7,13 @@ import { MarketingHeader } from "@/components/marketing/site-header";
 import { formatInr } from "@/lib/money";
 import { MULSETU_PRODUCTS_URL, MULSETU_URL, SITE_NAME, SITE_PARENT, SITE_PRODUCT_LINE } from "@/lib/site";
 import type { BillingPlan } from "@/modules/billing/types";
+
+const GIB = 1024 * 1024 * 1024;
+
+function formatStorage(bytes: number): string {
+  const gb = bytes / GIB;
+  return gb >= 1024 ? `${Math.round(gb / 1024)} TB` : `${Math.round(gb)} GB`;
+}
 
 const HERO_STATS = [
   { label: "Live register", value: "QR to record" },
@@ -29,7 +36,7 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
       <main>
         <section className="marketing-hero relative overflow-hidden">
           <div className="marketing-grid pointer-events-none absolute inset-0 opacity-70" aria-hidden />
-          <div className="relative mx-auto grid w-full max-w-6xl items-center gap-12 px-4 py-14 md:px-6 md:py-20 lg:grid-cols-[0.92fr_1.08fr] lg:py-24">
+          <div className="relative mx-auto grid w-full max-w-[100rem] items-center gap-12 px-4 py-14 md:px-6 lg:px-10 xl:px-16 md:py-20 lg:grid-cols-[0.92fr_1.08fr] lg:py-24">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#3F7A22]">
                 {SITE_PRODUCT_LINE} · by {SITE_PARENT}
@@ -101,8 +108,8 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
           </div>
         </section>
 
-        <section id="product-tour" className="border-t border-[#005068]/10 bg-[#F2F7F8] px-4 py-16 md:px-6 md:py-20">
-          <div className="mx-auto w-full max-w-6xl">
+        <section id="product-tour" className="border-t border-[#005068]/10 bg-[#F2F7F8] px-4 py-16 md:px-6 lg:px-10 xl:px-16 md:py-20">
+          <div className="mx-auto w-full max-w-[100rem]">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#3F7A22]">
               Inside the workspace
             </p>
@@ -127,8 +134,8 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
           </div>
         </section>
 
-        <section id="product" className="px-4 py-16 md:px-6 md:py-20">
-          <div className="mx-auto w-full max-w-6xl">
+        <section id="product" className="px-4 py-16 md:px-6 lg:px-10 xl:px-16 md:py-20">
+          <div className="mx-auto w-full max-w-[100rem]">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#3F7A22]">
               Core capabilities
             </p>
@@ -151,8 +158,8 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
           </div>
         </section>
 
-        <section id="how" className="border-t border-[#005068]/10 bg-[#F2F7F8] px-4 py-16 md:px-6 md:py-20">
-          <div className="mx-auto grid w-full max-w-6xl items-center gap-10 lg:grid-cols-2">
+        <section id="how" className="border-t border-[#005068]/10 bg-[#F2F7F8] px-4 py-16 md:px-6 lg:px-10 xl:px-16 md:py-20">
+          <div className="mx-auto grid w-full max-w-[100rem] items-center gap-10 lg:grid-cols-2">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#3F7A22]">
                 How we work with you
@@ -203,8 +210,8 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
           </div>
         </section>
 
-        <section className="border-y border-[#005068]/10 bg-[#003848] px-4 py-16 text-white md:px-6 md:py-20">
-          <div className="mx-auto w-full max-w-6xl">
+        <section className="border-y border-[#005068]/10 bg-[#003848] px-4 py-16 text-white md:px-6 lg:px-10 xl:px-16 md:py-20">
+          <div className="mx-auto w-full max-w-[100rem]">
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#9AD45A]">
               Spreadsheet vs {SITE_NAME}
             </p>
@@ -240,16 +247,16 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
           </div>
         </section>
 
-        <section id="pricing" className="px-4 py-16 md:px-6 md:py-20">
-          <div className="mx-auto w-full max-w-6xl">
+        <section id="pricing" className="px-4 py-16 md:px-6 lg:px-10 xl:px-16 md:py-20">
+          <div className="mx-auto w-full max-w-[100rem]">
             <div className="mx-auto max-w-2xl text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#3F7A22]">Pricing</p>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                 Plans that follow your asset count
               </h2>
               <p className="mt-4 text-sm leading-6 text-[#003848]/70 md:text-base">
-                Monthly billing through Razorpay. Extra asset packs are available inside the
-                workspace when you outgrow the cap.
+                Monthly billing through Razorpay. Every plan includes file storage, and extra asset
+                packs or storage can be added when you outgrow the cap.
               </p>
             </div>
             {plans.length === 0 ? (
@@ -261,63 +268,93 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
                 .
               </p>
             ) : (
-              <div className="mt-10 grid gap-4 md:grid-cols-3">
-                {plans.map((plan, index) => {
-                  const featured = index === featuredIndex;
-                  return (
-                    <article
-                      key={plan.id}
-                      className={
-                        featured
-                          ? "flex flex-col gap-4 rounded-xl border-2 border-[#005068] bg-white p-6 shadow-lg shadow-[#005068]/10"
-                          : "flex flex-col gap-4 rounded-xl border border-[#005068]/15 bg-white p-6"
-                      }
-                    >
-                      {featured ? (
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#3F7A22]">
-                          Most teams start here
-                        </p>
-                      ) : null}
-                      <div>
-                        <h3 className="text-xl font-semibold">{plan.name}</h3>
-                        {plan.description ? (
-                          <p className="mt-1 text-sm text-[#003848]/65">{plan.description}</p>
-                        ) : null}
-                      </div>
-                      <p className="text-4xl font-semibold tracking-tight">
-                        {formatInr(plan.priceMonthly)}
-                        <span className="text-sm font-normal text-[#003848]/55"> / month</span>
-                      </p>
-                      <p className="-mt-2 text-xs text-[#003848]/55">Billed monthly by card · cancel anytime</p>
-                      <ul className="flex flex-col gap-2 text-sm text-[#003848]/75">
-                        <li>Up to {plan.assetLimit.toLocaleString("en-IN")} assets</li>
-                        <li>
-                          Extra pack: {plan.extraAssetQuantity.toLocaleString("en-IN")} assets for{" "}
-                          {formatInr(plan.extraAssetPrice)}
-                        </li>
-                        <li>Your own slug, logo, and colors</li>
-                        <li>QR tags, audits, and maintenance</li>
-                      </ul>
-                      <Link
-                        href={`/signup?plan=${plan.id}`}
+              <>
+                <div className="mt-10 grid gap-4 md:grid-cols-3">
+                  {plans.map((plan, index) => {
+                    const featured = index === featuredIndex;
+                    return (
+                      <article
+                        key={plan.id}
                         className={
                           featured
-                            ? "mt-auto inline-flex h-10 items-center justify-center rounded-md bg-[#005068] text-sm font-medium text-white hover:bg-[#003E50]"
-                            : "mt-auto inline-flex h-10 items-center justify-center rounded-md border border-[#005068]/20 text-sm font-medium text-[#005068] hover:bg-[#005068]/5"
+                            ? "flex flex-col gap-4 rounded-xl border-2 border-[#005068] bg-white p-6 shadow-lg shadow-[#005068]/10"
+                            : "flex flex-col gap-4 rounded-xl border border-[#005068]/15 bg-white p-6"
                         }
                       >
-                        Get started
-                      </Link>
-                    </article>
-                  );
-                })}
-              </div>
+                        {featured ? (
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#3F7A22]">
+                            Most teams start here
+                          </p>
+                        ) : null}
+                        <div>
+                          <h3 className="text-xl font-semibold">{plan.name}</h3>
+                          {plan.description ? (
+                            <p className="mt-1 text-sm text-[#003848]/65">{plan.description}</p>
+                          ) : null}
+                        </div>
+                        <p className="text-4xl font-semibold tracking-tight">
+                          {formatInr(plan.priceMonthly)}
+                          <span className="text-sm font-normal text-[#003848]/55"> / month</span>
+                        </p>
+                        <p className="-mt-2 text-xs text-[#003848]/55">Billed monthly by card · cancel anytime</p>
+                        <ul className="flex flex-col gap-2 text-sm text-[#003848]/75">
+                          <li>Up to {plan.assetLimit.toLocaleString("en-IN")} assets</li>
+                          {plan.storageLimitBytes != null ? (
+                            <li>{formatStorage(plan.storageLimitBytes)} storage for photos and documents</li>
+                          ) : null}
+                          <li>
+                            Extra pack: {plan.extraAssetQuantity.toLocaleString("en-IN")} assets for{" "}
+                            {formatInr(plan.extraAssetPrice)}
+                          </li>
+                          <li>
+                            Extra storage: +{STORAGE_ADDON.gigabytes} GB for {formatInr(STORAGE_ADDON.priceMonthly)} / month
+                          </li>
+                          <li>Your own slug, logo, and colors</li>
+                          <li>QR tags, audits, and maintenance</li>
+                        </ul>
+                        <Link
+                          href={`/signup?plan=${plan.id}`}
+                          className={
+                            featured
+                              ? "mt-auto inline-flex h-10 items-center justify-center rounded-md bg-[#005068] text-sm font-medium text-white hover:bg-[#003E50]"
+                              : "mt-auto inline-flex h-10 items-center justify-center rounded-md border border-[#005068]/20 text-sm font-medium text-[#005068] hover:bg-[#005068]/5"
+                          }
+                        >
+                          Get started
+                        </Link>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-6 flex flex-col gap-4 rounded-xl border border-[#005068]/15 bg-[#F2F7F8] p-6 md:flex-row md:items-center md:justify-between">
+                  <div className="max-w-2xl">
+                    <h3 className="text-lg font-semibold">Storage included with every plan</h3>
+                    <p className="mt-1 text-sm leading-6 text-[#003848]/70">
+                      Asset photos, invoices, manuals, and warranty documents are stored with each
+                      record. Uploads up to 10 MB per file — JPG, PNG, WebP, GIF, PDF, and Word.
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+                    <p className="text-sm font-semibold">
+                      +{STORAGE_ADDON.gigabytes} GB for {formatInr(STORAGE_ADDON.priceMonthly)}
+                      <span className="font-normal text-[#003848]/55"> / month</span>
+                    </p>
+                    <Link
+                      href="/inquire"
+                      className="inline-flex h-10 items-center rounded-md border border-[#005068]/20 bg-white px-4 text-sm font-medium text-[#005068] hover:bg-[#005068]/5"
+                    >
+                      Request extra storage
+                    </Link>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </section>
 
-        <section className="border-t border-[#005068]/10 bg-[#F2F7F8] px-4 py-16 md:px-6">
-          <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <section className="border-t border-[#005068]/10 bg-[#F2F7F8] px-4 py-16 md:px-6 lg:px-10 xl:px-16">
+          <div className="mx-auto flex w-full max-w-[100rem] flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div className="max-w-2xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#3F7A22]">
                 Part of the {SITE_PARENT} product family
@@ -342,7 +379,7 @@ export function LandingPage({ plans }: { plans: BillingPlan[] }) {
           </div>
         </section>
 
-        <section id="faq" className="px-4 py-16 md:px-6 md:py-20">
+        <section id="faq" className="px-4 py-16 md:px-6 lg:px-10 xl:px-16 md:py-20">
           <div className="mx-auto w-full max-w-3xl">
             <h2 className="text-3xl font-semibold tracking-tight">Questions, answered</h2>
             <div className="mt-8 divide-y divide-[#005068]/10 border-y border-[#005068]/10">

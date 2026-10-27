@@ -12,7 +12,7 @@ const NAV = [
 export function MarketingHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-[#005068]/10 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 md:px-6">
+      <div className="mx-auto flex w-full max-w-[100rem] items-center justify-between gap-3 px-4 py-3 md:px-6 lg:px-10 xl:px-16">
         <Link href="/" className="flex min-w-0 items-center">
           <BrandLogo
             alt={`${SITE_NAME} by ${SITE_PARENT}`}

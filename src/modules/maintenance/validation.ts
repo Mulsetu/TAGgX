@@ -37,4 +37,5 @@ export type PlanFormInput = z.infer<typeof planFormSchema>;
 export const updateTicketSchema = z.object({
   status: z.enum(MAINTENANCE_STATUSES),
   assignedTo: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
+  dueAt: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid due date").optional()),
 });

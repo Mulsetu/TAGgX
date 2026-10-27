@@ -87,6 +87,7 @@ export async function updateTicket(
   id: string,
   status: MaintenanceStatus,
   assignedTo?: string,
+  dueAt?: string,
 ): Promise<MaintenanceMutationResult> {
   const supabase = createClient();
 
@@ -95,6 +96,7 @@ export async function updateTicket(
     .update({
       status,
       assigned_to: assignedTo ?? null,
+      due_at: dueAt ?? null,
       resolved_at: status === "resolved" || status === "cancelled" ? new Date().toISOString() : null,
     })
     .eq("id", id)

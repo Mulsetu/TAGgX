@@ -30,7 +30,7 @@ export default function DemoPage() {
         }}
       />
       <MarketingHeader />
-      <main className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-12 md:grid-cols-[1fr_1.1fr] md:px-6 md:py-16">
+      <main className="mx-auto grid w-full max-w-[100rem] gap-10 px-4 py-12 md:grid-cols-[1fr_1.1fr] md:px-6 lg:px-10 xl:px-16 md:py-16">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3F7A22]">
             Live walkthrough
