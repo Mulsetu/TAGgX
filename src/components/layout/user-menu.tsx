@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronsUpDown } from "lucide-react";
+import Link from "next/link";
+import { ChevronsUpDown, UserRound } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -43,6 +44,13 @@ export function UserMenu({ user, from }: { user: CurrentUser; from: "admin" | "t
             <span className="truncate text-xs text-muted-foreground">{user.role.name}</span>
           ) : null}
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href={from === "admin" ? "/admin/profile" : "/dashboard/profile"} className="flex w-full items-center gap-2">
+            <UserRound className="size-4" />
+            Profile &amp; password
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <SignOutButton from={from} />

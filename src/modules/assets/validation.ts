@@ -102,6 +102,11 @@ export const publicAssetReportSchema = z.object({
   message: z.string().trim().min(1, "Describe the issue").max(500),
 });
 
+export const assetOptionSearchSchema = z.object({
+  search: z.string().max(100).catch(""),
+  excludeAssetId: z.string().uuid().optional().catch(undefined),
+});
+
 export const qrLabelsRequestSchema = z
   .object({
     assetIds: z.array(z.string().uuid()).min(1).max(QR_LABEL_LIMIT).optional(),

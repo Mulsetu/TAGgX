@@ -8,7 +8,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isValidTenantSlug, TENANT_HEADERS } from "@/lib/tenant";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
@@ -95,7 +95,7 @@ export async function resolveWorkspaceLogin(formData: FormData): Promise<never> 
   const raw = String(formData.get("slug") ?? "");
   const normalized = raw.trim().toLowerCase().replace(/^\/+|\/+$/g, "").replace(/\/login$/, "");
 
-  if (!consumeRateLimit(`workspace-login:${ip}`, 20, 60_000)) {
+  if (await isRateLimited(`workspace-login:${ip}`, 20, 60_000)) {
     const params = new URLSearchParams({ error: "rate" });
     if (isValidTenantSlug(normalized)) {
       params.set("slug", normalized);
@@ -239,7 +239,7 @@ export async function createCompanyAction(
     return { error: "Choose a valid plan." };
   }
 
-  if (!consumeRateLimit(`company-create:${clientIpFromHeaders(headers())}`, 20, 60_000)) {
+  if (await isRateLimited(`company-create:${clientIpFromHeaders(headers())}`, 20, 60_000)) {
     return { error: "Too many requests. Wait a minute and try again." };
   }
 
@@ -536,7 +536,7 @@ export async function updateWorkspaceSettingsAction(
     return { error: "Could not determine your company." };
   }
 
-  if (!consumeRateLimit(`workspace-settings:${companyId}`, 30, 60_000)) {
+  if (await isRateLimited(`workspace-settings:${companyId}`, 30, 60_000)) {
     return { error: "Too many saves. Wait a minute and try again." };
   }
 
@@ -655,7 +655,7 @@ export async function exportWorkspaceDataAction(): Promise<WorkspaceExportState>
   }
 
   const exportKey = `workspace-export:${clientIpFromHeaders(headers())}`;
-  if (!consumeRateLimit(exportKey, 5, 60 * 60 * 1000)) {
+  if (await isRateLimited(exportKey, 5, 60 * 60 * 1000)) {
     return { error: "Too many exports. Try again later." };
   }
 
@@ -710,7 +710,7 @@ export async function requestWorkspaceDeletionAction(
   }
 
   const deletionKey = `deletion-request:${company.id}`;
-  if (!consumeRateLimit(deletionKey, 3, 24 * 60 * 60 * 1000)) {
+  if (await isRateLimited(deletionKey, 3, 24 * 60 * 60 * 1000)) {
     return { error: "Too many requests. Contact TagX support directly." };
   }
 
@@ -774,7 +774,7 @@ async function editableFieldConfig(): Promise<{ companyId: string; config: Asset
   if (!companyId) {
     return { error: "Could not determine your company." };
   }
-  if (!consumeRateLimit(`workspace-settings:${companyId}`, 30, 60_000)) {
+  if (await isRateLimited(`workspace-settings:${companyId}`, 30, 60_000)) {
     return { error: "Too many saves. Wait a minute and try again." };
   }
   const settings = await getCompanyWorkspaceSettings(companyId);

@@ -237,6 +237,7 @@ interface PlanRow {
   estimated_cost: number | null;
   instructions: string | null;
   interval_days: number | null;
+  asset: { name: string; asset_code: string } | { name: string; asset_code: string }[] | null;
 }
 
 export async function listMaintenancePlans(): Promise<MaintenancePlanSummary[]> {
@@ -245,24 +246,28 @@ export async function listMaintenancePlans(): Promise<MaintenancePlanSummary[]> 
   // not something this code should depend on silently.
   const { data } = await supabase
     .from("maintenance_plans")
-    .select("id, name, asset_id, frequency, next_due_at, is_active, vendor_id, assigned_to, checklist, estimated_cost, instructions, interval_days")
+    .select("id, name, asset_id, frequency, next_due_at, is_active, vendor_id, assigned_to, checklist, estimated_cost, instructions, interval_days, asset:assets(name, asset_code)")
     .order("next_due_at")
     .limit(2000)
     .returns<PlanRow[]>();
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    name: row.name,
-    assetId: row.asset_id,
-    frequency: row.frequency,
-    nextDueAt: row.next_due_at,
-    isActive: row.is_active,
-    vendorId: row.vendor_id,
-    assignedTo: row.assigned_to,
-    checklist: row.checklist,
-    estimatedCost: row.estimated_cost,
-    instructions: row.instructions,
-    intervalDays: row.interval_days,
-  }));
+  return (data ?? []).map((row) => {
+    const asset = Array.isArray(row.asset) ? row.asset[0] : row.asset;
+    return {
+      id: row.id,
+      name: row.name,
+      assetId: row.asset_id,
+      assetName: asset ? `${asset.name} · ${asset.asset_code}` : null,
+      frequency: row.frequency,
+      nextDueAt: row.next_due_at,
+      isActive: row.is_active,
+      vendorId: row.vendor_id,
+      assignedTo: row.assigned_to,
+      checklist: row.checklist,
+      estimatedCost: row.estimated_cost,
+      instructions: row.instructions,
+      intervalDays: row.interval_days,
+    };
+  });
 }
 
 interface DuePlanRow {

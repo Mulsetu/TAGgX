@@ -7,7 +7,7 @@ import { TENANT_HEADERS } from "@/lib/tenant";
 import { requirePermission } from "@/lib/permissions/has-permission";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { writeAuditLog } from "@/lib/audit-log";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { countAssetsPerStatus, listStatuses } from "./queries";
 import { createStatus, deleteStatus, reassignStatusAssets, reorderStatuses, updateStatus } from "./mutations";
 import { reorderSchema, replacementSchema, statusFormSchema } from "./validation";
@@ -109,7 +109,7 @@ export async function deleteStatusAction(id: string, replacementId?: string): Pr
   if (!(await requirePermission("statuses", "delete"))) {
     return { error: "You don't have permission to delete statuses." };
   }
-  if (!consumeRateLimit(`setup-delete:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
+  if (await isRateLimited(`setup-delete:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
     return { error: "Too many requests. Wait a minute and try again." };
   }
   const replacement = replacementSchema.safeParse(replacementId);

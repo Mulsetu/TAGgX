@@ -5,7 +5,7 @@ import { cookies, headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { TENANT_HEADERS, TENANT_SLUG_COOKIE } from "@/lib/tenant";
 import { writeAuditLog } from "@/lib/audit-log";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { isCurrentUserCompanyAdmin, requirePermission } from "@/lib/permissions/has-permission";
 import { cancelRazorpaySubscriptionAtCycleEnd } from "@/lib/razorpay";
@@ -472,7 +472,7 @@ export async function requestExtraAssetsAction(
   }
 
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`extra-assets:${companyId}:${ip}`, 10, 60 * 60 * 1000)) {
+  if (await isRateLimited(`extra-assets:${companyId}:${ip}`, 10, 60 * 60 * 1000)) {
     return { error: "Too many requests. Try again later." };
   }
 
@@ -542,7 +542,7 @@ export async function createWorkspaceForCurrentUserAction(
   formData: FormData,
 ): Promise<CreateWorkspaceState> {
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`onboarding:${ip}`, 5, 60 * 60 * 1000)) {
+  if (await isRateLimited(`onboarding:${ip}`, 5, 60 * 60 * 1000)) {
     return { error: "Too many attempts. Try again later." };
   }
 
@@ -717,7 +717,7 @@ export async function createWorkspaceForCurrentUserAction(
  */
 export async function abandonSignupCheckoutAction(): Promise<AbandonCheckoutState> {
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`onboarding-abandon:${ip}`, 10, 60 * 60 * 1000)) {
+  if (await isRateLimited(`onboarding-abandon:${ip}`, 10, 60 * 60 * 1000)) {
     return { discarded: false, redirectPath: "/dashboard" };
   }
 
@@ -1175,7 +1175,7 @@ export async function cancelSubscriptionAction(): Promise<BillingActionState> {
   if (!companyId) {
     return { error: "Could not determine your company." };
   }
-  if (!consumeRateLimit(`billing-cancel:${companyId}`, 5, 60 * 60 * 1000)) {
+  if (await isRateLimited(`billing-cancel:${companyId}`, 5, 60 * 60 * 1000)) {
     return { error: "Too many requests. Try again later." };
   }
 
@@ -1245,7 +1245,7 @@ export async function requestPlanChangeAction(_prev: BillingActionState, formDat
   if (!companyId) {
     return { error: "Could not determine your company." };
   }
-  if (!consumeRateLimit(`plan-change:${companyId}`, 5, 24 * 60 * 60 * 1000)) {
+  if (await isRateLimited(`plan-change:${companyId}`, 5, 24 * 60 * 60 * 1000)) {
     return { error: "You've already sent several requests today. TagX will be in touch." };
   }
   const parsed = planChangeRequestSchema.safeParse({ planId: formData.get("planId"), note: formData.get("note") });

@@ -10,7 +10,7 @@ import { requirePermission } from "@/lib/permissions/has-permission";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { requireModule } from "@/lib/permissions/features";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { writeAuditLog } from "@/lib/audit-log";
 import { dispatchEventEmail } from "@/modules/email/dispatch";
 import { createTicket } from "@/modules/maintenance/mutations";
@@ -534,7 +534,7 @@ export async function raiseAuditTicketAction(
   if (!(await requireModule("maintenance")) || !(await requirePermission("maintenance", "create"))) {
     return { error: "You don't have permission to create maintenance tickets." };
   }
-  if (!consumeRateLimit(`audit-ticket:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
+  if (await isRateLimited(`audit-ticket:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
     return { error: "Too many requests. Wait a minute and try again." };
   }
 

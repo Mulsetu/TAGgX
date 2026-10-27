@@ -11,17 +11,15 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { createTicketAction } from "@/modules/maintenance/actions";
 import { MAINTENANCE_PRIORITIES, type MaintenanceFormState } from "@/modules/maintenance/types";
-import type { AssetOption } from "@/modules/assets/types";
+import { AssetPicker } from "@/components/assets/asset-picker";
 import type { VendorOption } from "@/modules/vendors/types";
 
 const initialState: MaintenanceFormState = { error: null };
 
 export function CreateTicketForm({
-  assets,
   vendors,
   types,
 }: {
-  assets: AssetOption[];
   vendors: VendorOption[];
   types: { key: string; name: string }[];
 }) {
@@ -65,16 +63,7 @@ export function CreateTicketForm({
       <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="assetId">Asset</Label>
-          <NativeSelect id="assetId" name="assetId" required defaultValue="">
-            <option value="" disabled>
-              Select an asset
-            </option>
-            {assets.map((asset) => (
-              <option key={asset.id} value={asset.id}>
-                {asset.name}
-              </option>
-            ))}
-          </NativeSelect>
+          <AssetPicker id="assetId" name="assetId" required />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="title">Title</Label>

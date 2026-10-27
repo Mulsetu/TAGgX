@@ -8,6 +8,10 @@
 
 # testing
 /coverage
+/tests/dast/report/
+
+# supabase cli scratch files
+/supabase/.temp/
 
 # next.js
 /.next/

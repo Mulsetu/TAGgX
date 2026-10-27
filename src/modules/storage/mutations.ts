@@ -4,9 +4,21 @@ import { Readable } from "node:stream";
 import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { buildR2PublicUrl, createR2Client } from "@/lib/r2/client";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { EXTENSION_BY_MIME, inspectUploadFile } from "./validation";
 import type { UploadFileResult } from "./types";
+
+/**
+ * Moves the company's storage counter by `delta` bytes. Runs with the
+ * service-role key: signed-in users can't call the RPC themselves (they
+ * could zero their own usage and bypass the plan limit — migrations 0055/
+ * 0056). `companyId` must come from the server-side session, never from
+ * the request, which every caller in this file guarantees.
+ */
+async function adjustStorageUsed(companyId: string, delta: number): Promise<void> {
+  await createAdminClient().rpc("adjust_storage_used", { p_company_id: companyId, p_delta: delta });
+}
 
 /**
  * Virus-scan hook — STUB. Deliberately takes metadata only, not the
@@ -96,7 +108,7 @@ export async function uploadFileToR2({ companyId, folder, file }: UploadFilePara
     return { error: "Could not upload the file." };
   }
 
-  await supabase.rpc("adjust_storage_used", { p_company_id: companyId, p_delta: file.size });
+  await adjustStorageUsed(companyId, file.size);
 
   return { key, url: buildR2PublicUrl(key), sizeBytes: file.size, mimeType: inspected.mimeType };
 }
@@ -147,8 +159,7 @@ export async function deleteFilesFromR2(companyId: string, files: DeleteFilePara
   }
 
   if (freedBytes > 0) {
-    const supabase = createClient();
-    await supabase.rpc("adjust_storage_used", { p_company_id: companyId, p_delta: -freedBytes });
+    await adjustStorageUsed(companyId, -freedBytes);
   }
 }
 
@@ -164,6 +175,5 @@ export async function reconcileStorageUsed(companyId: string, currentBytes: numb
     return;
   }
 
-  const supabase = createClient();
-  await supabase.rpc("adjust_storage_used", { p_company_id: companyId, p_delta: delta });
+  await adjustStorageUsed(companyId, delta);
 }
