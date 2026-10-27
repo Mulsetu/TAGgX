@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Building2, CalendarClock, Check, CreditCard, FileText, Package, Receipt } from "lucide-react";
+import { Building2, CalendarClock, Check, CreditCard, Download, FileText, Package, Receipt } from "lucide-react";
 import { LocalTime } from "@/components/layout/local-time";
 import { openRazorpayCheckout } from "@/components/billing/open-razorpay-checkout";
 import {
@@ -483,12 +483,22 @@ export function BillingPanel({
                       </span>
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <Link
-                        href={`/dashboard/administration/invoices/${payment.id}`}
-                        className="inline-flex items-center gap-1 text-sm font-medium text-[hsl(var(--brand-primary))] hover:underline"
-                      >
-                        <FileText className="size-3.5" /> Invoice
-                      </Link>
+                      <div className="inline-flex items-center gap-3">
+                        <Link
+                          href={`/dashboard/administration/invoices/${payment.id}`}
+                          className="inline-flex items-center gap-1 text-sm font-medium text-[hsl(var(--brand-primary))] hover:underline"
+                        >
+                          <FileText className="size-3.5" /> View
+                        </Link>
+                        <a
+                          href={`/dashboard/administration/invoices/${payment.id}/pdf`}
+                          download
+                          className="inline-flex items-center gap-1 text-sm font-medium text-[hsl(var(--brand-primary))] hover:underline"
+                          aria-label={`Download invoice for ${plan?.name ?? "Plan"} subscription`}
+                        >
+                          <Download className="size-3.5" /> PDF
+                        </a>
+                      </div>
                     </td>
                   </tr>
                 ))}

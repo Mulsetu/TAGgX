@@ -22,7 +22,7 @@ export const LANDING_FAQS = [
   {
     question: "How is TagX priced?",
     answer:
-      "Plans are billed monthly in INR through Razorpay and are capped by how many assets you need. Prices and limits are set by the TagX platform, not hardcoded. You can buy extra asset packs later from Settings.",
+      "Plans are billed monthly in INR through Razorpay and are capped by how many assets you need. Every plan includes file storage for asset photos and documents. You can buy extra asset packs later from Settings, and add +50 GB of storage for ₹499/month.",
   },
   {
     question: "Who is TagX for?",
@@ -30,6 +30,9 @@ export const LANDING_FAQS = [
       "Operations, facilities, IT, and plant teams that still track equipment in spreadsheets — factories, campuses, hospitals, warehouses, and field-service companies that need a scan-to-record system with their own brand.",
   },
 ] as const;
+
+/** Storage top-up offered on every plan (arranged on request until self-serve billing supports it). */
+export const STORAGE_ADDON = { gigabytes: 50, priceMonthly: 499 } as const;
 
 export const CAPABILITIES = [
   {

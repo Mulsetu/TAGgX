@@ -20,6 +20,9 @@ import type { AssetOption, ConditionOption } from "@/modules/assets/types";
 
 const initial: CustodyFormState = { error: null };
 
+// Conditions that don't need damage remarks on return.
+const UNDAMAGED_CONDITIONS = new Set(["new", "good"]);
+
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -36,6 +39,8 @@ export function CustodyPanel({
   showTransfer = true,
   showDispose = true,
   disposalMethods = [],
+  isAssigned,
+  handoverAccessories = [],
   assignedToName = null,
   assignedSince = null,
 }: {
@@ -50,11 +55,15 @@ export function CustodyPanel({
   showTransfer?: boolean;
   showDispose?: boolean;
   disposalMethods?: string[];
+  isAssigned: boolean;
+  handoverAccessories?: string[];
   assignedToName?: string | null;
   assignedSince?: string | null;
 }) {
   const [state, setState] = useState<CustodyFormState>(initial);
   const [isPending, startTransition] = useTransition();
+  const [returnCondition, setReturnCondition] = useState("");
+  const needsDamageRemarks = returnCondition !== "" && !UNDAMAGED_CONDITIONS.has(returnCondition);
 
   function run(action: (state: CustodyFormState, formData: FormData) => Promise<CustodyFormState>, formData: FormData) {
     startTransition(async () => {
@@ -119,7 +128,7 @@ export function CustodyPanel({
         </Button>
       ) : null}
       <div className="grid grid-cols-1 gap-4 @lg:grid-cols-3">
-        {showHandover ? (
+        {showHandover && !isAssigned ? (
         <form
           action={(formData) => run(handoverAssetAction, formData)}
           className="flex flex-col gap-2 rounded-lg border p-3"
@@ -136,14 +145,14 @@ export function CustodyPanel({
             ))}
           </NativeSelect>
           <Input name="handedOverAt" type="date" defaultValue={today()} required />
-          <Textarea name="accessories" placeholder="Accessories" rows={2} />
+          <Textarea name="accessories" placeholder="Accessories (comma-separated)" rows={2} />
           <Textarea name="notes" placeholder="Notes" rows={2} />
           <Button type="submit" disabled={isPending} size="sm">
             Record handover
           </Button>
         </form>
         ) : null}
-        {showHandover ? (
+        {showHandover && isAssigned ? (
         <form
           action={(formData) => run(returnAssetAction, formData)}
           className="flex flex-col gap-2 rounded-lg border p-3"
@@ -151,7 +160,11 @@ export function CustodyPanel({
           <p className="text-sm font-medium">Return</p>
           <input type="hidden" name="assetId" value={assetId} />
           <Input name="returnedAt" type="date" defaultValue={today()} required />
-          <NativeSelect name="conditionKey">
+          <NativeSelect
+            name="conditionKey"
+            value={returnCondition}
+            onChange={(event) => setReturnCondition(event.target.value)}
+          >
             <option value="">Condition</option>
             {conditions.map((condition) => (
               <option key={condition.key} value={condition.key}>
@@ -159,8 +172,25 @@ export function CustodyPanel({
               </option>
             ))}
           </NativeSelect>
-          <Textarea name="damageRemarks" placeholder="Damage remarks" rows={2} />
-          <Textarea name="missingAccessories" placeholder="Missing accessories" rows={2} />
+          {needsDamageRemarks ? (
+            <Textarea name="damageRemarks" placeholder="Damage remarks" rows={2} />
+          ) : null}
+          {handoverAccessories.length > 0 ? (
+            <fieldset className="flex flex-col gap-1">
+              <legend className="mb-1 text-xs text-muted-foreground">Tick any missing accessories</legend>
+              {handoverAccessories.map((item) => (
+                <label key={item} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="missingAccessoryItems" value={item} />
+                  {item}
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
+          <Textarea
+            name="missingAccessories"
+            placeholder={handoverAccessories.length > 0 ? "Other missing items" : "Missing accessories"}
+            rows={2}
+          />
           <Button type="submit" disabled={isPending} size="sm">
             Record return
           </Button>
@@ -171,17 +201,19 @@ export function CustodyPanel({
           action={(formData) => run(transferAssetAction, formData)}
           className="flex flex-col gap-2 rounded-lg border p-3"
         >
-          <p className="text-sm font-medium">Transfer</p>
+          <p className="text-sm font-medium">{isAssigned ? "Transfer" : "Move location"}</p>
           <input type="hidden" name="assetId" value={assetId} />
-          <NativeSelect name="toUserId">
-            <option value="">Keep custodian</option>
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </NativeSelect>
-          <NativeSelect name="toLocationId">
+          {isAssigned ? (
+            <NativeSelect name="toUserId">
+              <option value="">Keep custodian</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name}
+                </option>
+              ))}
+            </NativeSelect>
+          ) : null}
+          <NativeSelect name="toLocationId" required={!isAssigned}>
             <option value="">Keep location</option>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
@@ -192,7 +224,7 @@ export function CustodyPanel({
           <Input name="transferredAt" type="date" defaultValue={today()} required />
           <Textarea name="reason" placeholder="Reason" rows={2} />
           <Button type="submit" disabled={isPending} size="sm">
-            Record transfer
+            {isAssigned ? "Record transfer" : "Record move"}
           </Button>
         </form>
         ) : null}

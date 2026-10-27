@@ -375,15 +375,15 @@ export type WorkflowKey = (typeof WORKFLOW_KEYS)[number];
 export type WorkflowConfig = Record<WorkflowKey, boolean>;
 
 export const WORKFLOW_LABELS: Record<WorkflowKey, string> = {
-  transfer_approval: "Transfer acknowledgement",
-  disposal_approval: "Disposal requires dispose permission",
+  transfer_approval: "Receiver must accept transfers",
+  disposal_approval: "Restrict disposal to specific roles",
   maintenance_approval: "Maintenance approval (reserved)",
   asset_request_approval: "Asset request approval (reserved)",
 };
 
 export const WORKFLOW_DESCRIPTIONS: Record<WorkflowKey, string> = {
-  transfer_approval: "Custodian transfers wait for the receiving user to accept or reject.",
-  disposal_approval: "Only roles with Dispose can record disposal. When off, Edit is enough.",
+  transfer_approval: "When an asset moves to someone new, it only changes hands after they accept it. Off: it moves right away.",
+  disposal_approval: "Only roles with the Dispose permission can mark assets as sold, scrapped, etc. Off: anyone who can edit assets can.",
   maintenance_approval: "Stored for a later release; tickets are not blocked yet.",
   asset_request_approval: "Stored for a later release; allocation is not blocked yet.",
 };

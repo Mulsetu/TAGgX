@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, MapPin, Search, TriangleAlert, X } from "lucide-react";
 import { QrCameraScanner } from "@/components/audits/qr-camera-scanner";
 import { Button } from "@/components/ui/button";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -239,7 +240,7 @@ export function AuditScanForm({
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="photo">Photo{requirePhotoOnException ? " (required)" : " (optional)"}</Label>
-                <Input id="photo" name="photo" type="file" accept="image/*" capture="environment" />
+                <FileDropzone id="photo" name="photo" accept="image/*" capture="environment" hint="JPG, PNG or WebP" />
               </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Button type="submit" disabled={isSaving} size="touch">

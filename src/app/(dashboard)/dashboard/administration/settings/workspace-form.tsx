@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { Lock, Plus, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,13 +77,15 @@ function ToggleRow({
   defaultChecked,
   disabled,
   badge,
+  onCheckedChange,
 }: {
   name: string;
   label: string;
-  description?: string;
+  description?: React.ReactNode;
   defaultChecked: boolean;
   disabled?: boolean;
   badge?: React.ReactNode;
+  onCheckedChange?: (checked: boolean) => void;
 }) {
   return (
     <li>
@@ -94,7 +97,13 @@ function ToggleRow({
           </span>
           {description ? <span className="block text-xs text-slate-500">{description}</span> : null}
         </span>
-        <Switch name={name} defaultChecked={defaultChecked} disabled={disabled} className="mt-0.5" />
+        <Switch
+          name={name}
+          defaultChecked={defaultChecked}
+          disabled={disabled}
+          onCheckedChange={onCheckedChange}
+          className="mt-0.5"
+        />
       </label>
     </li>
   );
@@ -233,18 +242,44 @@ export function DashboardForm({ settings }: { settings: CompanyWorkspaceSettings
 /** Workflows that actually change behaviour today; the others are stored for a later release. */
 const LIVE_WORKFLOWS: WorkflowKey[] = ["transfer_approval", "disposal_approval"];
 
-function ChipList({ name, label, description, initial, placeholder }: { name: string; label: string; description: string; initial: string[]; placeholder: string }) {
+const DEPARTMENT_SUGGESTIONS = ["Finance", "HR", "IT", "Operations", "Sales", "Admin"];
+const DISPOSAL_METHOD_SUGGESTIONS = ["Sold", "Scrapped", "Donated", "Lost", "Stolen", "Returned to vendor"];
+
+function ChipList({
+  name,
+  label,
+  description,
+  initial,
+  placeholder,
+  suggestions,
+  onChange,
+}: {
+  name: string;
+  label: string;
+  description: string;
+  initial: string[];
+  placeholder: string;
+  suggestions: string[];
+  onChange: () => void;
+}) {
   const [items, setItems] = useState(initial);
   const [draft, setDraft] = useState("");
+  const remaining = suggestions.filter(
+    (suggestion) => !items.some((item) => item.toLowerCase() === suggestion.toLowerCase()),
+  );
+
+  function update(next: string[]) {
+    setItems(next);
+    onChange();
+  }
 
   function add() {
     const value = draft.trim();
+    setDraft("");
     if (!value || items.some((item) => item.toLowerCase() === value.toLowerCase())) {
-      setDraft("");
       return;
     }
-    setItems([...items, value]);
-    setDraft("");
+    update([...items, value]);
   }
 
   return (
@@ -261,7 +296,7 @@ function ChipList({ name, label, description, initial, placeholder }: { name: st
               {item}
               <button
                 type="button"
-                onClick={() => setItems(items.filter((entry) => entry !== item))}
+                onClick={() => update(items.filter((entry) => entry !== item))}
                 className="grid size-5 place-items-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700"
                 aria-label={`Remove ${item}`}
               >
@@ -273,6 +308,31 @@ function ChipList({ name, label, description, initial, placeholder }: { name: st
       ) : (
         <p className="text-sm text-slate-400">None yet.</p>
       )}
+      {remaining.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-slate-500">Suggestions:</span>
+          {remaining.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => update([...items, suggestion])}
+              className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-0.5 text-xs text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+            >
+              <Plus className="size-3" />
+              {suggestion}
+            </button>
+          ))}
+          {remaining.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => update([...items, ...remaining])}
+              className="text-xs font-medium text-slate-700 underline-offset-2 hover:underline"
+            >
+              Add all
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex gap-2">
         <Input
           value={draft}
@@ -296,15 +356,41 @@ function ChipList({ name, label, description, initial, placeholder }: { name: st
   );
 }
 
+const WORKFLOW_EXTRAS: Partial<Record<WorkflowKey, React.ReactNode>> = {
+  disposal_approval: (
+    <>
+      {" "}
+      <Link href="/dashboard/administration/roles" className="font-medium text-slate-700 underline underline-offset-2">
+        See which roles have it
+      </Link>
+    </>
+  ),
+};
+
+/** Saves on every change: toggles and list edits submit the form once the DOM reflects the new value. */
 export function WorkspaceDetailsForm({ settings }: { settings: CompanyWorkspaceSettings }) {
   const { state, isPending, handleSubmit } = useSettingsForm();
+  const formRef = useRef<HTMLFormElement>(null);
+  const [saveRequests, setSaveRequests] = useState(0);
+  const requestSave = () => setSaveRequests((count) => count + 1);
+
+  useEffect(() => {
+    if (saveRequests > 0) {
+      formRef.current?.requestSubmit();
+    }
+  }, [saveRequests]);
 
   return (
-    <form action={handleSubmit} className="flex max-w-4xl flex-col gap-4">
+    <form ref={formRef} action={handleSubmit} className="flex max-w-4xl flex-col gap-4">
       <input type="hidden" name="intent" value="workspace" />
-      <div>
-        <h2 className="text-base font-semibold text-slate-900">Workspace</h2>
-        <p className="text-sm text-slate-500">Rules for how work flows, and the pick-lists used on asset forms.</p>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Workspace</h2>
+          <p className="text-sm text-slate-500">Rules for how work flows, and the pick-lists used on asset forms. Changes save automatically.</p>
+        </div>
+        <div className="text-sm" aria-live="polite">
+          {isPending ? <span className="text-slate-500">Saving...</span> : <SaveNote state={state} />}
+        </div>
       </div>
       {/* Reserved workflows keep their stored value; they don't affect anything yet. */}
       {WORKFLOW_KEYS.filter((key) => !LIVE_WORKFLOWS.includes(key)).map((key) =>
@@ -316,11 +402,21 @@ export function WorkspaceDetailsForm({ settings }: { settings: CompanyWorkspaceS
             key={key}
             name={`workflow_${key}`}
             label={WORKFLOW_LABELS[key]}
-            description={WORKFLOW_DESCRIPTIONS[key]}
+            description={
+              <>
+                {WORKFLOW_DESCRIPTIONS[key]}
+                {WORKFLOW_EXTRAS[key]}
+              </>
+            }
             defaultChecked={settings.workflowConfig[key] === true}
+            onCheckedChange={requestSave}
           />
         ))}
       </Group>
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900">Pick-lists</h3>
+        <p className="text-xs text-slate-500">Dropdown choices people see on asset forms.</p>
+      </div>
       <div className="grid gap-4 @3xl:grid-cols-2">
         <ChipList
           name="departments"
@@ -328,6 +424,8 @@ export function WorkspaceDetailsForm({ settings }: { settings: CompanyWorkspaceS
           description="Shown in the Department field on assets."
           initial={settings.departments}
           placeholder="e.g. Finance"
+          suggestions={DEPARTMENT_SUGGESTIONS}
+          onChange={requestSave}
         />
         <ChipList
           name="disposalMethods"
@@ -335,9 +433,10 @@ export function WorkspaceDetailsForm({ settings }: { settings: CompanyWorkspaceS
           description="Choices when an asset is disposed of."
           initial={settings.disposalMethods}
           placeholder="e.g. Sold, Scrapped"
+          suggestions={DISPOSAL_METHOD_SUGGESTIONS}
+          onChange={requestSave}
         />
       </div>
-      <SaveBar state={state} isPending={isPending} label="Save workspace" />
     </form>
   );
 }

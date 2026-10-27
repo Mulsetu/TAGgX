@@ -77,3 +77,16 @@ export async function getPendingTransferForAsset(assetId: string): Promise<{
     transferredAt: data.transferred_at,
   };
 }
+
+export async function getLatestHandoverAccessories(assetId: string, toUserId: string): Promise<string | null> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from("asset_handovers")
+    .select("accessories")
+    .eq("asset_id", assetId)
+    .eq("to_user_id", toUserId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ accessories: string | null }>();
+  return data?.accessories ?? null;
+}

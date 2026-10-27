@@ -1,14 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { FileDropzone } from "@/components/ui/file-dropzone";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { mediaSrc } from "@/lib/media-url";
 import { deleteAssetDocumentAction, uploadAssetAttachmentAction } from "@/modules/assets/actions";
 import type { AssetAttachment, DocumentTypeOption } from "@/modules/assets/types";
+import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES } from "@/modules/storage/types";
+
+const ATTACHMENT_ACCEPT = Array.from(ALLOWED_MIME_TYPES).join(",");
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B";
@@ -43,6 +47,7 @@ export function AttachmentUploader({ assetId, attachments, documentTypes, canEdi
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isUploading, startTransition] = useTransition();
+  const formRef = useRef<HTMLFormElement>(null);
   const photos = attachments.filter((attachment) => attachment.documentType === "photo");
   const documents = attachments.filter((attachment) => attachment.documentType !== "photo");
 
@@ -59,6 +64,7 @@ export function AttachmentUploader({ assetId, attachments, documentTypes, canEdi
         setError(result.error);
         return;
       }
+      formRef.current?.reset();
       router.refresh();
     });
   }
@@ -140,10 +146,18 @@ export function AttachmentUploader({ assetId, attachments, documentTypes, canEdi
         )}
       </ul>
       {canEdit ? (
-        <form action={handleSubmit} className="grid grid-cols-1 gap-3 @sm:grid-cols-3">
+        <form ref={formRef} action={handleSubmit} className="grid grid-cols-1 items-start gap-3 @sm:grid-cols-3">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="attachmentFile">Add attachment</Label>
-            <Input id="attachmentFile" name="file" type="file" disabled={isUploading} required />
+            <FileDropzone
+              id="attachmentFile"
+              name="file"
+              accept={ATTACHMENT_ACCEPT}
+              maxBytes={MAX_FILE_SIZE_BYTES}
+              hint="PDF, Word or image, up to 10 MB"
+              disabled={isUploading}
+              required
+            />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="documentType">Type</Label>

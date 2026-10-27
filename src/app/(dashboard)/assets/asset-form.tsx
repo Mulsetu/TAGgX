@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageUploadField } from "@/components/assets/image-upload-field";
@@ -47,17 +48,22 @@ function FormSection({
 function Field({
   label,
   htmlFor,
+  required,
   error,
   children,
 }: {
   label: string;
   htmlFor: string;
+  required?: boolean;
   error?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={htmlFor}>{label}</Label>
+      <Label htmlFor={htmlFor}>
+        {label}
+        {required ? <RequiredMark /> : null}
+      </Label>
       {children}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
@@ -95,7 +101,7 @@ function CategoryCheckboxField({
       />
       <Label htmlFor={`custom_${field.key}`} className="font-normal">
         {field.label}
-        {field.required ? " *" : ""}
+        {field.required ? <RequiredMark /> : null}
       </Label>
     </div>
   );
@@ -134,7 +140,8 @@ function CategoryFieldsSection({
         return (
           <Field
             key={field.id}
-            label={`${field.label}${field.required ? " *" : ""}`}
+            label={field.label}
+            required={field.required}
             htmlFor={`custom_${field.key}`}
             error={error}
           >
@@ -236,7 +243,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
     return {
       show: config?.enabled !== false,
       required: config?.required === true,
-      label: `${config?.label || ASSET_FIELD_LABELS[key]}${config?.required ? " *" : ""}`,
+      label: config?.label || ASSET_FIELD_LABELS[key],
     };
   };
 
@@ -264,7 +271,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
       <div className="flex flex-col gap-4 rounded-lg border p-4">
         <p className="text-sm font-medium">Basic Info</p>
 
-        <Field label="Name *" htmlFor="name" error={fieldErrors.name}>
+        <Field label="Name" required htmlFor="name" error={fieldErrors.name}>
           <Input id="name" name="name" defaultValue={asset?.name} required maxLength={200} />
         </Field>
 
@@ -278,7 +285,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
           </div>
         ) : null}
 
-        <Field label="Category *" htmlFor="categoryId" error={fieldErrors.categoryId}>
+        <Field label="Category" required htmlFor="categoryId" error={fieldErrors.categoryId}>
           <NativeSelect
             id="categoryId"
             name="categoryId"
@@ -297,7 +304,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
           </NativeSelect>
         </Field>
 
-        <Field label="Location *" htmlFor="locationId" error={fieldErrors.locationId}>
+        <Field label="Location" required htmlFor="locationId" error={fieldErrors.locationId}>
           <NativeSelect id="locationId" name="locationId" defaultValue={asset?.locationId ?? ""} required>
             <option value="" disabled>
               Select a location
@@ -314,7 +321,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
           <Input id="cwipInvoiceId" name="cwipInvoiceId" defaultValue={asset?.cwipInvoiceId ?? ""} maxLength={100} />
         </Field>
 
-        <Field label="Status *" htmlFor="statusId" error={fieldErrors.statusId}>
+        <Field label="Status" required htmlFor="statusId" error={fieldErrors.statusId}>
           <NativeSelect
             id="statusId"
             name="statusId"
@@ -383,7 +390,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
         </Field>
 
         {field("serialNumber").show ? (
-        <Field label={field("serialNumber").label} htmlFor="serialNumber">
+        <Field label={field("serialNumber").label} required={field("serialNumber").required} htmlFor="serialNumber">
           <Input
             id="serialNumber"
             name="serialNumber"
@@ -408,7 +415,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
         </Field>
 
         {field("department").show ? (
-        <Field label={field("department").label} htmlFor="department">
+        <Field label={field("department").label} required={field("department").required} htmlFor="department">
           {options.departments.length > 0 ? (
             <NativeSelect id="department" name="department" defaultValue={asset?.department ?? ""} required={field("department").required}>
               <option value="">Not set</option>
@@ -468,7 +475,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
       {/* Purchase Info — collapsed by default */}
       <FormSection title="Purchase Info" defaultOpen={false}>
         {field("vendorId").show ? (
-        <Field label={field("vendorId").label} htmlFor="vendorId">
+        <Field label={field("vendorId").label} required={field("vendorId").required} htmlFor="vendorId">
           <NativeSelect id="vendorId" name="vendorId" defaultValue={asset?.vendorId ?? ""} required={field("vendorId").required}>
             <option value="">None</option>
             {options.vendors.map((vendor) => (
@@ -505,7 +512,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
             <Input id="purchaseDate" name="purchaseDate" type="date" defaultValue={asset?.purchaseDate ?? ""} />
           </Field>
           {field("purchasePrice").show ? (
-          <Field label={field("purchasePrice").label} htmlFor="purchasePrice">
+          <Field label={field("purchasePrice").label} required={field("purchasePrice").required} htmlFor="purchasePrice">
             <Input
               id="purchasePrice"
               name="purchasePrice"
@@ -523,7 +530,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
 
         <div className="grid grid-cols-1 gap-4 @sm:grid-cols-3">
           {field("usefulLifeYears").show ? (
-          <Field label={field("usefulLifeYears").label} htmlFor="usefulLifeYears">
+          <Field label={field("usefulLifeYears").label} required={field("usefulLifeYears").required} htmlFor="usefulLifeYears">
             <Input
               id="usefulLifeYears"
               name="usefulLifeYears"
@@ -538,7 +545,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
             <input type="hidden" name="usefulLifeYears" value={asset?.usefulLifeYears ?? ""} />
           )}
           {field("currentBookValue").show ? (
-          <Field label={field("currentBookValue").label} htmlFor="currentBookValue">
+          <Field label={field("currentBookValue").label} required={field("currentBookValue").required} htmlFor="currentBookValue">
             <Input
               id="currentBookValue"
               name="currentBookValue"
@@ -553,7 +560,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
             <input type="hidden" name="currentBookValue" value={asset?.currentBookValue ?? ""} />
           )}
           {field("residualValue").show ? (
-          <Field label={field("residualValue").label} htmlFor="residualValue">
+          <Field label={field("residualValue").label} required={field("residualValue").required} htmlFor="residualValue">
             <Input
               id="residualValue"
               name="residualValue"
@@ -581,7 +588,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
             </Label>
           </div>
           {ownershipType === "partner" ? (
-            <Field label="Partner Name *" htmlFor="partnerName" error={fieldErrors.partnerName}>
+            <Field label="Partner Name" required htmlFor="partnerName" error={fieldErrors.partnerName}>
               <Input
                 id="partnerName"
                 name="partnerName"
@@ -598,7 +605,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
         <div className="flex flex-col gap-4 rounded-md border p-3">
           <p className="text-xs font-medium text-muted-foreground">Allotment</p>
           {field("allottedTo").show ? (
-          <Field label={field("allottedTo").label} htmlFor="allottedTo" error={fieldErrors.allottedTo}>
+          <Field label={field("allottedTo").label} required={field("allottedTo").required} htmlFor="allottedTo" error={fieldErrors.allottedTo}>
             <NativeSelect id="allottedTo" name="allottedTo" defaultValue={asset?.allottedTo ?? ""} required={field("allottedTo").required}>
               <option value="">Unassigned</option>
               {options.users.map((user) => (
@@ -612,7 +619,7 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
             <input type="hidden" name="allottedTo" value={asset?.allottedTo ?? ""} />
           )}
           {field("allotmentDate").show ? (
-          <Field label={field("allotmentDate").label} htmlFor="allotmentDate">
+          <Field label={field("allotmentDate").label} required={field("allotmentDate").required} htmlFor="allotmentDate">
             <Input id="allotmentDate" name="allotmentDate" type="date" defaultValue={asset?.allotmentDate ?? ""} required={field("allotmentDate").required} />
           </Field>
           ) : (

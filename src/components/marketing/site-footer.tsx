@@ -15,7 +15,7 @@ import {
 export function MarketingFooter() {
   return (
     <footer className="border-t bg-[#003848] text-white">
-      <div className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-12 md:grid-cols-4 md:px-6">
+      <div className="mx-auto grid w-full max-w-[100rem] gap-10 px-4 py-12 md:grid-cols-4 md:px-6 lg:px-10 xl:px-16">
         <div className="md:col-span-1">
           <div className="flex items-center">
             <BrandLogo alt={SITE_NAME} size={40} className="h-10 w-auto max-w-[12.5rem] rounded-md bg-white p-1" />
@@ -104,7 +104,7 @@ export function MarketingFooter() {
         </div>
       </div>
       <div className="border-t border-white/10">
-        <p className="mx-auto flex w-full max-w-6xl flex-col gap-1 px-4 py-4 text-xs text-white/60 md:flex-row md:items-center md:justify-between md:px-6">
+        <p className="mx-auto flex w-full max-w-[100rem] flex-col gap-1 px-4 py-4 text-xs text-white/60 md:flex-row md:items-center md:justify-between md:px-6 lg:px-10 xl:px-16">
           <span>
             © {new Date().getFullYear()} {SITE_NAME}. A {SITE_PARENT} product. All rights reserved.
           </span>

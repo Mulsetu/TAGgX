@@ -14,7 +14,12 @@ import { getAssetById, listMissingRequiredDocuments } from "@/modules/assets/que
 import { recordAssetLocationMove, updateAssetStatus } from "@/modules/assets/mutations";
 import { getLocationPath } from "@/modules/locations/actions";
 import { dispatchEventEmail } from "@/modules/email/dispatch";
-import { getPendingHandoverForUser, getPendingTransferForAsset as queryPendingTransfer, listLifecycleEvents } from "./queries";
+import {
+  getLatestHandoverAccessories,
+  getPendingHandoverForUser,
+  getPendingTransferForAsset as queryPendingTransfer,
+  listLifecycleEvents,
+} from "./queries";
 import {
   acceptTransfer,
   acknowledgeHandover,
@@ -53,6 +58,18 @@ export async function getPendingTransferForAsset(assetId: string) {
     return null;
   }
   return queryPendingTransfer(assetId);
+}
+
+/** Accessories recorded when the current custodian received the asset, split into items. */
+export async function getCurrentHandoverAccessories(assetId: string, custodianId: string | null): Promise<string[]> {
+  if (!custodianId || !(await requirePermission("assets", "view"))) {
+    return [];
+  }
+  const accessories = await getLatestHandoverAccessories(assetId, custodianId);
+  return (accessories ?? "")
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }
 
 export async function handoverAssetAction(
@@ -161,7 +178,12 @@ export async function returnAssetAction(
     returnedAt: formData.get("returnedAt"),
     conditionKey: formData.get("conditionKey"),
     damageRemarks: formData.get("damageRemarks"),
-    missingAccessories: formData.get("missingAccessories"),
+    missingAccessories: [
+      ...formData.getAll("missingAccessoryItems"),
+      formData.get("missingAccessories"),
+    ]
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join(", "),
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
@@ -169,6 +191,9 @@ export async function returnAssetAction(
   const asset = await getAssetById(parsed.data.assetId);
   if (!asset) {
     return { error: "Asset not found." };
+  }
+  if (!asset.allottedTo) {
+    return { error: "This asset isn't assigned to anyone, so there's nothing to return." };
   }
   const result = await insertReturn(companyId, user.id, asset.allottedTo, parsed.data);
   if ("error" in result) {

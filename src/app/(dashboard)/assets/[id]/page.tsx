@@ -16,7 +16,12 @@ import {
   shouldRedirectAssetToTag,
 } from "@/modules/assets/actions";
 import { getStatusesForAdmin } from "@/modules/statuses/actions";
-import { getLifecycleEventsForAsset, getPendingAcknowledgement, getPendingTransferForAsset } from "@/modules/custody/actions";
+import {
+  getCurrentHandoverAccessories,
+  getLifecycleEventsForAsset,
+  getPendingAcknowledgement,
+  getPendingTransferForAsset,
+} from "@/modules/custody/actions";
 import { assertModule, requireModule } from "@/lib/permissions/features";
 import { CustodyPanel } from "../custody-panel";
 import { AssetStatusActions } from "../asset-status-actions";
@@ -145,6 +150,7 @@ export default async function AssetDetailPage({ params }: AssetDetailPageProps) 
     canDispose,
     canDocuments,
     canQr,
+    handoverAccessories,
   ] = await Promise.all([
     getAssetFormOptionsForForm(asset.id),
     getAssetAttachmentsForDetail(asset.id),
@@ -163,6 +169,7 @@ export default async function AssetDetailPage({ params }: AssetDetailPageProps) 
     requireModule("disposal"),
     requireModule("documents"),
     requireModule("qr"),
+    getCurrentHandoverAccessories(asset.id, asset.allottedTo),
   ]);
   const finalStatuses = statuses.filter((status) => status.isFinal).map((status) => ({ id: status.id, name: status.name }));
   const image = mediaSrc(asset.imageUrl);
@@ -344,6 +351,8 @@ export default async function AssetDetailPage({ params }: AssetDetailPageProps) 
           showTransfer={canTransfer}
           showDispose={canDispose}
           disposalMethods={options.disposalMethods}
+          isAssigned={asset.allottedTo !== null}
+          handoverAccessories={handoverAccessories}
           assignedToName={asset.allottedToName}
           assignedSince={asset.allotmentDate ? formatWhen(asset.allotmentDate) : null}
         />
