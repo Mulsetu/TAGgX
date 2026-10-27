@@ -2,9 +2,10 @@ import "server-only";
 import { EMAIL_EVENT_MODULES } from "@/lib/permissions/feature-catalog";
 import { resolveEnabledModulesForCompany } from "@/lib/permissions/features";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { SIMULATED_EMAIL_NOTE, sendTemplatedEmail } from "@/lib/email";
+import { SIMULATED_EMAIL_NOTE, sendTemplatedEmail, type EmailBrand } from "@/lib/email";
 import { getCompanyByIdAdmin } from "@/modules/companies/queries";
 import { mediaSrc } from "@/lib/media-url";
+import { getPublicSiteUrl } from "@/lib/site";
 import { getCompanyAdminEmails } from "./queries";
 
 interface TemplateRow {
@@ -62,25 +63,33 @@ const FALLBACK: Record<string, { subject: string; html: string; text: string }> 
   },
 };
 
-function contactLine(brand: {
-  contactEmail: string | null;
-  contactPhone: string | null;
-  contactAddress: string | null;
-}): string | null {
-  const parts = [brand.contactEmail, brand.contactPhone, brand.contactAddress].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
-
+/**
+ * Mail clients fetch images from their own servers, so the logo needs an
+ * absolute URL on the public domain — never localhost. R2 branding keys go
+ * through /api/media, which serves them without a session.
+ */
 function publicLogoUrl(logoUrl: string | null): string | null {
   if (!logoUrl) {
     return null;
   }
-  if (logoUrl.startsWith("http://") || logoUrl.startsWith("https://")) {
-    return logoUrl;
-  }
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
   const path = mediaSrc(logoUrl);
-  return path && appUrl ? `${appUrl}${path}` : path;
+  if (!path) {
+    return null;
+  }
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  return path.startsWith("/") ? `${getPublicSiteUrl()}${path}` : null;
+}
+
+function emailBrand(company: { name: string; logoUrl: string | null; primaryColor: string | null }): EmailBrand {
+  return { companyName: company.name, logoUrl: publicLogoUrl(company.logoUrl), primaryColor: company.primaryColor };
+}
+
+/** Branding for emails sent outside the event pipeline, such as the Notifications page's test send. */
+export async function getEmailBrandForCompany(companyId: string): Promise<EmailBrand | undefined> {
+  const company = await getCompanyByIdAdmin(companyId);
+  return company ? emailBrand(company) : undefined;
 }
 
 export async function dispatchEventEmail(params: {
@@ -122,14 +131,7 @@ export async function dispatchEventEmail(params: {
   const textBody = template?.text_body ?? fallback?.text ?? "{{asset_name}}";
 
   const brandRow = await getCompanyByIdAdmin(params.companyId);
-  const brand = brandRow
-    ? {
-        companyName: brandRow.name,
-        logoUrl: publicLogoUrl(brandRow.logoUrl),
-        contactLine: contactLine(brandRow),
-        primaryColor: brandRow.primaryColor,
-      }
-    : undefined;
+  const brand = brandRow ? emailBrand(brandRow) : undefined;
   const brandedVars = {
     ...params.vars,
     organization_name: brandRow?.name ?? params.vars.organization_name ?? "TagX",
@@ -262,14 +264,7 @@ export async function retryFailedNotificationEmails(): Promise<{ retried: number
       htmlBody,
       textBody,
       vars,
-      brand: brandRow
-        ? {
-            companyName: brandRow.name,
-            logoUrl: publicLogoUrl(brandRow.logoUrl),
-            contactLine: contactLine(brandRow),
-            primaryColor: brandRow.primaryColor,
-          }
-        : undefined,
+      brand: brandRow ? emailBrand(brandRow) : undefined,
     });
 
     const nextAttempts = attempts + 1;

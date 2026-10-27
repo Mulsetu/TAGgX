@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, Mail, Pencil, Send } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Mail, Pencil, Plus, Send } from "lucide-react";
 import { LocalTime } from "@/components/layout/local-time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -107,6 +107,20 @@ function TemplateDialog({
   );
 }
 
+function offsetLabel(days: number): string {
+  if (days === 0) return "On the day";
+  return `${days} day${days === 1 ? "" : "s"} before`;
+}
+
+/** "Emails 30 days before, 7 days before and on the day." — the active reminders in plain words. */
+function reminderSummary(rules: NotificationRuleSummary[], templateOn: boolean): string {
+  if (!templateOn) return "This email is turned off, so no reminders are sent.";
+  const active = rules.filter((rule) => rule.isEnabled).map((rule) => offsetLabel(rule.offsetDays).toLowerCase());
+  if (active.length === 0) return "No reminders selected, so nothing is sent. Tap a timing to turn it on.";
+  const list = active.length === 1 ? active[0] : `${active.slice(0, -1).join(", ")} and ${active[active.length - 1]}`;
+  return `Emails ${list}.`;
+}
+
 function EventRow({
   template,
   rules,
@@ -163,28 +177,38 @@ function EventRow({
         </div>
       </div>
       {rules.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-slate-500">Send</span>
-          {rules
-            .slice()
-            .sort((a, b) => b.offsetDays - a.offsetDays)
-            .map((rule) => (
-              <button
-                key={rule.id}
-                type="button"
-                disabled={!canEdit || isPending || !template.isEnabled}
-                onClick={() => toggleRule(rule)}
-                aria-pressed={rule.isEnabled}
-                className={cn(
-                  "rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 transition-colors disabled:opacity-50",
-                  rule.isEnabled
-                    ? "bg-primary/10 text-slate-900 ring-primary/40"
-                    : "bg-white text-slate-400 ring-slate-200 line-through",
-                )}
-              >
-                {rule.offsetDays === 0 ? "on the day" : `${rule.offsetDays}d before`}
-              </button>
-            ))}
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-slate-500">Remind:</span>
+            {rules
+              .slice()
+              .sort((a, b) => b.offsetDays - a.offsetDays)
+              .map((rule) => {
+                const on = rule.isEnabled && template.isEnabled;
+                return (
+                  <button
+                    key={rule.id}
+                    type="button"
+                    disabled={!canEdit || isPending || !template.isEnabled}
+                    onClick={() => toggleRule(rule)}
+                    aria-pressed={rule.isEnabled}
+                    title={rule.isEnabled ? "On: click to stop this reminder" : "Off: click to send this reminder"}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                      on
+                        ? "border-primary/50 bg-primary/15 text-slate-900"
+                        : "border-dashed border-slate-300 bg-white text-slate-500 hover:bg-slate-50",
+                    )}
+                  >
+                    {on ? <Check className="size-3" /> : <Plus className="size-3" />}
+                    {offsetLabel(rule.offsetDays)}
+                  </button>
+                );
+              })}
+          </div>
+          <p className={cn("text-xs", template.isEnabled && rules.some((rule) => rule.isEnabled) ? "text-slate-500" : "text-amber-700")}>
+            {reminderSummary(rules, template.isEnabled)}
+          </p>
         </div>
       ) : null}
       {error ? <p className="text-xs text-destructive">{error}</p> : null}

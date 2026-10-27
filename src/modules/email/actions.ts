@@ -22,6 +22,7 @@ import {
   listRecentNotificationLogs,
   markNotificationEmailed,
 } from "./queries";
+import { getEmailBrandForCompany } from "./dispatch";
 import { setNotificationRuleEnabled, updateEmailTemplate } from "./mutations";
 import { testEmailSchema, updateTemplateSchema } from "./validation";
 import type {
@@ -278,6 +279,7 @@ export async function sendTestEmailAction(_prev: EmailFormState, formData: FormD
     return { error: "No recipient email." };
   }
 
+  const brand = await getEmailBrandForCompany(companyId);
   const result = await sendTemplatedEmail({
     to,
     subject: template.subject,
@@ -290,8 +292,9 @@ export async function sendTestEmailAction(_prev: EmailFormState, formData: FormD
       asset_url: `${APP_URL}/assets`,
       maintenance_title: "Sample ticket",
       vendor_name: "Sample vendor",
-      organization_name: "TagX",
+      organization_name: brand?.companyName ?? "TagX",
     },
+    brand,
   });
   if ("error" in result) {
     return { error: result.error };
