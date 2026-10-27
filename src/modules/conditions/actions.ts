@@ -7,7 +7,7 @@ import { TENANT_HEADERS } from "@/lib/tenant";
 import { requirePermission } from "@/lib/permissions/has-permission";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { writeAuditLog } from "@/lib/audit-log";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { countAssetsPerCondition, listActiveConditionOptions, listConditions } from "./queries";
 import { createCondition, deleteCondition, reassignConditionKey, reorderConditions, updateCondition } from "./mutations";
 import { conditionFormSchema, reorderSchema, replacementSchema } from "./validation";
@@ -129,7 +129,7 @@ export async function deleteConditionAction(id: string, replacementId?: string):
   if (!(await requirePermission("statuses", "delete"))) {
     return { error: "You don't have permission to delete conditions." };
   }
-  if (!consumeRateLimit(`setup-delete:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
+  if (await isRateLimited(`setup-delete:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
     return { error: "Too many requests. Wait a minute and try again." };
   }
   const replacement = replacementSchema.safeParse(replacementId);

@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { sendCrmLeadNotificationEmail } from "@/lib/email";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { getSiteUrl } from "@/lib/site";
 import { isCurrentUserSuperAdmin } from "@/lib/permissions/super-admin";
 import { countNewLeadsForAdmin, listLeadsForAdmin } from "./queries";
@@ -42,7 +42,7 @@ export async function submitLeadAction(
   }
 
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`crm-lead:${ip}`, 8, 60 * 60 * 1000)) {
+  if (await isRateLimited(`crm-lead:${ip}`, 8, 60 * 60 * 1000)) {
     return { error: "Too many requests. Please try again later." };
   }
 

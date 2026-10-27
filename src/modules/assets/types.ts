@@ -47,7 +47,6 @@ export interface AssetFormOptions {
   locations: AssetOption[];
   statuses: AssetOption[];
   users: AssetOption[];
-  linkableAssets: AssetOption[];
   categoryFields: CategoryField[];
   conditions: ConditionOption[];
   vendors: AssetOption[];
@@ -267,6 +266,9 @@ export interface AssetLocationMove {
 
 /** Most labels one bulk QR PDF can hold. */
 export const QR_LABEL_LIMIT = 1000;
+
+/** Matches returned per keystroke by the asset picker's type-ahead. */
+export const ASSET_OPTION_SEARCH_LIMIT = 20;
 
 export interface QrLabel {
   id: string;

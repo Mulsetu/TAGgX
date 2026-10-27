@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import { createClient, getAuthUser } from "@/lib/supabase/server";
 import { safePostLoginPath } from "@/lib/paths";
 import { isValidTenantSlug, TENANT_SLUG_COOKIE, tenantLoginPathFromCookie } from "@/lib/tenant";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { getCompanyBySlug, getCompanySuspendedAt } from "@/modules/companies/queries";
 import { createCompanyInvite } from "@/modules/companies/mutations";
 import { getCurrentCompany } from "@/modules/companies/actions";
@@ -23,6 +23,7 @@ import { getSiteUrl } from "@/lib/site";
 import { getPlanById, getSubscriptionForCompany } from "@/modules/billing/queries";
 import {
   accountSignupSchema,
+  changePasswordSchema,
   confirmSignupEmailSchema,
   continueSignupSchema,
   resendVerificationSchema,
@@ -42,11 +43,15 @@ import {
   insertOnboardingUser,
   setUserActive,
   transferCompanyAdmin,
+  updateOwnPassword,
   updateUserRole,
+  verifyAccountPassword,
 } from "./mutations";
 import type {
   AcceptInviteState,
+  AccountProfile,
   AccountSignupState,
+  ChangePasswordState,
   CompanyUserSummary,
   ConfirmSignupEmailState,
   CurrentUser,
@@ -99,7 +104,7 @@ export async function signIn(slug: string, nextPath: string | null, formData: Fo
   // In-process only (single instance). Multi-instance needs Redis — TAGX-019.
   // Successful logins still consume a slot; the window does not reset on success.
   const loginKey = `login:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}:${slug}`;
-  if (!consumeRateLimit(loginKey, 10, 15 * 60 * 1000)) {
+  if (await isRateLimited(loginKey, 10, 15 * 60 * 1000)) {
     return fail("rate");
   }
 
@@ -175,7 +180,7 @@ export async function signInSuperAdmin(formData: FormData): Promise<never> {
   }
 
   const adminLoginKey = `admin-login:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}`;
-  if (!consumeRateLimit(adminLoginKey, 10, 15 * 60 * 1000)) {
+  if (await isRateLimited(adminLoginKey, 10, 15 * 60 * 1000)) {
     return fail("rate");
   }
 
@@ -208,7 +213,7 @@ export async function signupAccountAction(
   formData: FormData,
 ): Promise<AccountSignupState> {
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`account-signup:${ip}`, 5, 60 * 60 * 1000)) {
+  if (await isRateLimited(`account-signup:${ip}`, 5, 60 * 60 * 1000)) {
     return { error: "Too many signup attempts. Try again later." };
   }
 
@@ -385,7 +390,7 @@ export async function continueSignupAction(
   }
 
   const key = `signup-continue:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}`;
-  if (!consumeRateLimit(key, 10, 15 * 60 * 1000)) {
+  if (await isRateLimited(key, 10, 15 * 60 * 1000)) {
     return { error: "Too many attempts. Try again later." };
   }
 
@@ -414,7 +419,7 @@ export async function resendSignupVerificationAction(
   }
 
   const key = `signup-resend:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}`;
-  if (!consumeRateLimit(key, 3, 15 * 60 * 1000)) {
+  if (await isRateLimited(key, 3, 15 * 60 * 1000)) {
     return { error: "Too many requests. Try again in a few minutes." };
   }
 
@@ -464,7 +469,7 @@ export async function confirmSignupEmailAction(
   formData: FormData,
 ): Promise<ConfirmSignupEmailState> {
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`signup-confirm:${ip}`, 10, 15 * 60 * 1000)) {
+  if (await isRateLimited(`signup-confirm:${ip}`, 10, 15 * 60 * 1000)) {
     return { error: "Too many attempts. Try again later." };
   }
 
@@ -562,7 +567,7 @@ export async function requestPasswordResetAction(
   }
 
   const resetKey = `reset:${clientIpFromHeaders(headers())}:${parsed.data.email.toLowerCase()}`;
-  if (!consumeRateLimit(resetKey, 5, 15 * 60 * 1000)) {
+  if (await isRateLimited(resetKey, 5, 15 * 60 * 1000)) {
     return { submitted: false, error: "Too many reset emails. Try again later." };
   }
 
@@ -578,6 +583,80 @@ export async function requestPasswordResetAction(
   return { submitted: true, error: null };
 }
 
+/** What the profile page shows: works for workspace users and super admins (who have no workspace). */
+export async function getAccountProfile(): Promise<AccountProfile | null> {
+  const authUser = await getAuthUser();
+  if (!authUser?.email) {
+    return null;
+  }
+  const [user, superAdmin, company] = await Promise.all([
+    loadCurrentUser(),
+    isCurrentUserSuperAdmin(),
+    getCurrentCompany(),
+  ]);
+  return {
+    email: authUser.email,
+    fullName: user?.fullName ?? null,
+    roleName: superAdmin ? "Super admin" : (user?.role?.name ?? null),
+    isCompanyAdmin: user?.isCompanyAdmin ?? false,
+    companyName: company?.name ?? null,
+    lastSignInAt: authUser.last_sign_in_at ?? null,
+  };
+}
+
+/**
+ * Profile page "Change password", for any signed-in account (workspace user,
+ * company admin or super admin). Confirms the current password, then sets
+ * the new one right away and signs out the account's other devices.
+ *
+ * Deliberately not email-gated yet; when OTP/link verification is added,
+ * it slots in between the current-password check and updateOwnPassword().
+ * Works on read-only (suspended) workspaces too — it's the person's own
+ * login, not workspace data.
+ */
+export async function changeOwnPasswordAction(
+  _prevState: ChangePasswordState,
+  formData: FormData,
+): Promise<ChangePasswordState> {
+  const user = await getAuthUser();
+  if (!user?.email) {
+    return { error: "You must be signed in." };
+  }
+  if (await isRateLimited(`password-change:${user.id}`, 5, 15 * 60 * 1000)) {
+    return { error: "Too many attempts. Try again in 15 minutes." };
+  }
+
+  const parsed = changePasswordSchema.safeParse({
+    currentPassword: formData.get("currentPassword"),
+    newPassword: formData.get("newPassword"),
+    confirmPassword: formData.get("confirmPassword"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  if (!(await verifyAccountPassword(user.email, parsed.data.currentPassword))) {
+    return { error: "Your current password is incorrect." };
+  }
+
+  const result = await updateOwnPassword(parsed.data.newPassword);
+  if (result.error) {
+    if (result.code === "same_password") {
+      return { error: "Choose a password different from your current one." };
+    }
+    if (result.code === "weak_password") {
+      return { error: "That password is too weak. Try a longer one with a mix of letters, numbers and symbols." };
+    }
+    if (result.code === "reauthentication_needed") {
+      return { error: "For security, sign out and sign back in, then change your password." };
+    }
+    return { error: "Could not change your password. Try again." };
+  }
+
+  await writeAuditLog({ action: "user.password_changed", entityType: "user", entityId: user.id });
+  return { error: null, success: true };
+}
+
 /**
  * Completes a password reset from the Brevo email's link. The recovery
  * token is only redeemed here, when the new password is submitted — not
@@ -588,7 +667,7 @@ export async function updatePasswordAction(
   formData: FormData,
 ): Promise<ResetPasswordState> {
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`reset-confirm:${ip}`, 10, 15 * 60 * 1000)) {
+  if (await isRateLimited(`reset-confirm:${ip}`, 10, 15 * 60 * 1000)) {
     return { success: false, error: "Too many attempts. Try again later." };
   }
 
@@ -750,7 +829,7 @@ export async function inviteCompanyUserAction(
   }
 
   const inviteKey = `invite:${company.id}:${clientIpFromHeaders(headers())}`;
-  if (!consumeRateLimit(inviteKey, 10, 60 * 60 * 1000)) {
+  if (await isRateLimited(inviteKey, 10, 60 * 60 * 1000)) {
     return { error: "Too many invites. Try again later." };
   }
 
@@ -820,7 +899,7 @@ export async function updateUserRoleAction(userId: string, roleId: string): Prom
   }
 
   const roleChangeKey = `user-role-change:${clientIpFromHeaders(headers())}`;
-  if (!consumeRateLimit(roleChangeKey, 60, 60 * 60 * 1000)) {
+  if (await isRateLimited(roleChangeKey, 60, 60 * 60 * 1000)) {
     return { error: "Too many changes. Try again later." };
   }
 
@@ -914,7 +993,7 @@ export async function transferCompanyAdminAction(
   }
 
   const adminChangeKey = `company-admin-change:${clientIpFromHeaders(headers())}`;
-  if (!consumeRateLimit(adminChangeKey, 10, 60 * 60 * 1000)) {
+  if (await isRateLimited(adminChangeKey, 10, 60 * 60 * 1000)) {
     return { error: "Too many changes. Try again later." };
   }
 

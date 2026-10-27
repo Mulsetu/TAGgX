@@ -22,6 +22,7 @@ import {
 } from "@/modules/maintenance/actions";
 import type { MaintenanceFormState, MaintenancePlanSummary } from "@/modules/maintenance/types";
 import type { AssetOption } from "@/modules/assets/types";
+import { AssetPicker } from "@/components/assets/asset-picker";
 import type { VendorOption } from "@/modules/vendors/types";
 
 const FREQUENCIES = [
@@ -38,19 +39,16 @@ const initialState: MaintenanceFormState = { error: null };
 
 export function PlanList({
   plans,
-  assets,
   vendors,
   users,
 }: {
   plans: MaintenancePlanSummary[];
-  assets: AssetOption[];
   vendors: VendorOption[];
   users: AssetOption[];
 }) {
   const router = useRouter();
   const [state, setState] = useState<MaintenanceFormState>(initialState);
   const [isPending, startTransition] = useTransition();
-  const assetName = new Map(assets.map((asset) => [asset.id, asset.name]));
 
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
@@ -73,16 +71,7 @@ export function PlanList({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="assetId">Asset</Label>
-            <NativeSelect id="assetId" name="assetId" required defaultValue="">
-              <option value="" disabled>
-                Select an asset
-              </option>
-              {assets.map((asset) => (
-                <option key={asset.id} value={asset.id}>
-                  {asset.name}
-                </option>
-              ))}
-            </NativeSelect>
+            <AssetPicker id="assetId" name="assetId" required />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="frequency">Frequency</Label>
@@ -166,7 +155,7 @@ export function PlanList({
               {plans.map((plan) => (
                 <TableRow key={plan.id}>
                   <TableCell className="font-medium">{plan.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{assetName.get(plan.assetId) ?? plan.assetId}</TableCell>
+                  <TableCell className="text-muted-foreground">{plan.assetName ?? "—"}</TableCell>
                   <TableCell className="capitalize text-muted-foreground">{plan.frequency.replace("_", " ")}</TableCell>
                   <TableCell className="text-muted-foreground">{plan.nextDueAt}</TableCell>
                   <TableCell className="text-muted-foreground">{plan.isActive ? "Active" : "Paused"}</TableCell>

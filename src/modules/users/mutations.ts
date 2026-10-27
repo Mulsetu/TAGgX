@@ -1,6 +1,36 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createStatelessClient } from "@/lib/supabase/stateless";
+
+/**
+ * Checks a password without affecting the caller's session: signs in on a
+ * cookie-less client, then immediately revokes that throwaway session.
+ */
+export async function verifyAccountPassword(email: string, password: string): Promise<boolean> {
+  const supabase = createStatelessClient();
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error || !data.session) {
+    return false;
+  }
+  await supabase.auth.signOut({ scope: "local" });
+  return true;
+}
+
+/**
+ * Sets the signed-in user's own password, then signs out their other
+ * devices so a leaked old password stops working everywhere. The current
+ * session stays signed in.
+ */
+export async function updateOwnPassword(newPassword: string): Promise<{ error: string | null; code?: string }> {
+  const supabase = createClient();
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) {
+    return { error: error.message, code: error.code };
+  }
+  await supabase.auth.signOut({ scope: "others" });
+  return { error: null };
+}
 
 export type AcceptInviteResult = { userId: string } | { error: string };
 

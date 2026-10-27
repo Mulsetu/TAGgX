@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { TENANT_HEADERS } from "@/lib/tenant";
 import { requireModule } from "@/lib/permissions/features";
 import { requirePermission } from "@/lib/permissions/has-permission";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { writeAuditLog } from "@/lib/audit-log";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import {
@@ -204,7 +204,7 @@ export async function deleteCategoryAction(id: string, replacementId?: string): 
   if (!(await requirePermission("categories", "delete"))) {
     return { error: "You don't have permission to delete categories." };
   }
-  if (!consumeRateLimit(`setup-delete:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
+  if (await isRateLimited(`setup-delete:${clientIpFromHeaders(headers())}`, 30, 60_000)) {
     return { error: "Too many requests. Wait a minute and try again." };
   }
   const replacement = replacementSchema.safeParse(replacementId);

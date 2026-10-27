@@ -49,8 +49,16 @@ npm run dev                  # http://localhost:3000
 | `npm run dev` | Development server |
 | `npm run build` / `npm start` | Production build and serve |
 | `npm run lint` | ESLint, including the architecture import rules |
-| `npm test` / `npm run test:watch` | Vitest |
+| `npm test` / `npm run test:watch` | Vitest unit tests (`src/**/*.test.ts`) |
+| `npm run test:security` | Offline security checks: layering, RLS in migrations, secrets, dangerous patterns, header config |
+| `npm run test:http` | Live security checks against a running app (`TARGET_URL=...`) |
+| `npm run test:db` | pgTAP RLS tests on the local Supabase stack |
+| `npm run test:deps` | Known-vulnerable production dependencies |
+| `npm run test:dast` | OWASP ZAP baseline scan (Docker, `TARGET_URL=...`) |
+| `npm run test:load:*` | k6 load profiles: `smoke`, `average`, `stress`, `spike`, `soak`, `breakpoint` |
 | `node scripts/verify-migrations.mjs` | Checks the migrations against the configured database |
+
+How and when to run each test suite: [tests/README.md](./tests/README.md).
 
 ### Environment variables
 
@@ -65,6 +73,7 @@ npm run dev                  # http://localhost:3000
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Payments |
 | `CRON_SECRET` | Bearer token for `/api/cron/notifications`. If it is missing, the endpoint returns 401. |
 | `SEND_REAL_EMAILS_IN_DEV` | Optional. Sends real emails from a development build. |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Optional. Shares rate limits across server instances. Without them (or if Redis is down) limits are per instance, and the app works normally. Vercel KV's `KV_REST_API_URL` / `KV_REST_API_TOKEN` also work. |
 
 Razorpay webhook URL: `https://<domain>/api/razorpay/webhook`. Subscribe it to the events `payment.captured`, `order.paid`, `subscription.activated`, `subscription.charged`, `subscription.pending`, `subscription.halted` and `subscription.cancelled`.
 
@@ -127,16 +136,22 @@ src/
     tag/[id]/                Public QR scan page
     signup/, onboarding/, invite/[token]/, reset-password/, auth/confirm/
     page.tsx, demo/, inquire/, asset-management-system/   Marketing site
+    dashboard/profile/, (admin)/admin/profile/            Account profile + change password
   components/
-    ui/                      shadcn/ui primitives
-    assets/, audits/, dashboard/, layout/, marketing/ ...
+    ui/                      shadcn/ui primitives (plus file-dropzone, required-mark)
+    account/, assets/, audits/, dashboard/, layout/, marketing/ ...
   modules/                   Domain modules (Model + Controller)
   lib/
-    supabase/                Client factories (browser / server / admin)
+    supabase/                Client factories (browser / server / admin / stateless)
     permissions/             RBAC, feature modules, tenant access, super admin
-    rate-limit.ts            In-process rate limiter
+    rate-limit.ts            Rate limiter (Redis when configured, in-process fallback)
+    email.ts, invoice.ts     Email layout + sending, invoice PDF
   middleware.ts              Session refresh, tenant / suspension / active-user gates
-supabase/migrations/         SQL migrations (schema source of truth)
+supabase/
+  migrations/                SQL migrations (schema source of truth)
+  tests/database/            pgTAP RLS tests (`npm run test:db`)
+tests/                       Security, HTTP, load (k6) and DAST (ZAP) suites — see tests/README.md
+docs/brand/                  Source brand assets (not served; the app uses public/)
 scripts/                     Maintenance scripts
 ```
 

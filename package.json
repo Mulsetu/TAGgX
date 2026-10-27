@@ -8,7 +8,18 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:security": "vitest run --config tests/vitest.security.config.mts",
+    "test:http": "vitest run --config tests/vitest.http.config.mts",
+    "test:db": "supabase test db",
+    "test:deps": "npm audit --omit=dev --audit-level=high",
+    "test:dast": "node tests/dast/run-zap.mjs",
+    "test:load:smoke": "k6 run tests/load/smoke.js",
+    "test:load:average": "k6 run tests/load/load.js",
+    "test:load:stress": "k6 run tests/load/stress.js",
+    "test:load:spike": "k6 run tests/load/spike.js",
+    "test:load:soak": "k6 run tests/load/soak.js",
+    "test:load:breakpoint": "k6 run tests/load/breakpoint.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",

@@ -775,19 +775,13 @@ export async function getAssetFilterOptions(): Promise<{
  * caller's own company via RLS. `excludeAssetId` drops the asset being
  * edited out of its own "linked asset" choices.
  */
-export async function getAssetFormOptions(excludeAssetId?: string): Promise<AssetFormOptions> {
+export async function getAssetFormOptions(): Promise<AssetFormOptions> {
   const supabase = createClient();
 
-  let linkableQuery = supabase.from("assets").select("id, name").is("deleted_at", null).order("name");
-  if (excludeAssetId) {
-    linkableQuery = linkableQuery.neq("id", excludeAssetId);
-  }
-
-  const [categoriesRes, statusesRes, usersRes, linkableRes, locationOptions, conditionsRes] = await Promise.all([
+  const [categoriesRes, statusesRes, usersRes, locationOptions, conditionsRes] = await Promise.all([
     supabase.from("asset_categories").select("id, name").order("name").returns<NameRow[]>(),
     supabase.from("asset_statuses").select("id, name").order("sort_order").returns<NameRow[]>(),
     supabase.from("users").select("id, full_name, email").order("full_name").returns<UserOptionRow[]>(),
-    linkableQuery.returns<NameRow[]>(),
     listLocationOptions(),
     supabase.from("asset_conditions").select("key, name").eq("is_active", true).order("sort_order").returns<{ key: string; name: string }[]>(),
   ]);
@@ -799,7 +793,6 @@ export async function getAssetFormOptions(excludeAssetId?: string): Promise<Asse
     locations: locationOptions.map((location) => ({ id: location.id, name: location.name })),
     statuses: (statusesRes.data ?? []).map(toOption),
     users: (usersRes.data ?? []).map((row) => ({ id: row.id, name: row.full_name ?? row.email })),
-    linkableAssets: (linkableRes.data ?? []).map(toOption),
     categoryFields: [],
     conditions: (conditionsRes.data ?? []).map((row) => ({ key: row.key, name: row.name })),
     vendors: [],
@@ -807,6 +800,32 @@ export async function getAssetFormOptions(excludeAssetId?: string): Promise<Asse
     departments: [],
     disposalMethods: [],
   };
+}
+
+/**
+ * Type-ahead source for asset pickers: at most `limit` matches by name or
+ * code, scoped to the caller's company by RLS. Replaces loading every asset
+ * into a dropdown, which grew with the workspace.
+ */
+export async function searchAssetOptions(search: string, excludeAssetId: string | undefined, limit: number): Promise<AssetOption[]> {
+  const supabase = createClient();
+  let query = supabase
+    .from("assets")
+    .select("id, name, asset_code")
+    .is("deleted_at", null)
+    .order("name")
+    .limit(limit);
+  const term = search.trim();
+  if (term) {
+    // Parentheses would end the or() group early, so they're dropped along with the usual ilike escapes.
+    const pattern = `%${escapeIlike(term).replace(/[()]/g, " ")}%`;
+    query = query.or(`name.ilike.${pattern},asset_code.ilike.${pattern}`);
+  }
+  if (excludeAssetId) {
+    query = query.neq("id", excludeAssetId);
+  }
+  const { data } = await query.returns<{ id: string; name: string; asset_code: string }[]>();
+  return (data ?? []).map((row) => ({ id: row.id, name: `${row.name} · ${row.asset_code}` }));
 }
 
 interface AssetDocumentRow {

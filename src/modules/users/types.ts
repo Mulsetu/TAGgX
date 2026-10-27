@@ -40,6 +40,20 @@ export interface CurrentUser {
   role: { id: string; name: string } | null;
 }
 
+export interface AccountProfile {
+  email: string;
+  fullName: string | null;
+  roleName: string | null;
+  isCompanyAdmin: boolean;
+  companyName: string | null;
+  lastSignInAt: string | null;
+}
+
+export interface ChangePasswordState {
+  error: string | null;
+  success?: boolean;
+}
+
 export interface CompanyUserSummary {
   id: string;
   email: string;

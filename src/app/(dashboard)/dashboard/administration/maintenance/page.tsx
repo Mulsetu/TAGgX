@@ -61,7 +61,7 @@ export default async function MaintenancePage({ searchParams }: MaintenancePageP
           </p>
         </div>
         {canCreate ? (
-          <CreateTicketForm assets={options.linkableAssets} vendors={vendors} types={types} />
+          <CreateTicketForm vendors={vendors} types={types} />
         ) : null}
       </div>
 

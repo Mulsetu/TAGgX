@@ -9,6 +9,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { AssetPicker } from "@/components/assets/asset-picker";
 import { ImageUploadField } from "@/components/assets/image-upload-field";
 import { createAssetAction, updateAssetAction } from "@/modules/assets/actions";
 import type { Asset, AssetFormOptions, AssetFormState, OwnershipType } from "@/modules/assets/types";
@@ -369,14 +370,12 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
         </Field>
 
         <Field label="Linked Asset" htmlFor="linkedAssetId" error={fieldErrors.linkedAssetId}>
-          <NativeSelect id="linkedAssetId" name="linkedAssetId" defaultValue={asset?.linkedAssetId ?? ""}>
-            <option value="">None</option>
-            {options.linkableAssets.map((linkable) => (
-              <option key={linkable.id} value={linkable.id}>
-                {linkable.name}
-              </option>
-            ))}
-          </NativeSelect>
+          <AssetPicker
+            id="linkedAssetId"
+            name="linkedAssetId"
+            excludeAssetId={asset?.id}
+            initial={asset?.linkedAssetId ? { id: asset.linkedAssetId, name: asset.linkedAssetName ?? "Linked asset" } : null}
+          />
         </Field>
 
         <Field label="Description" htmlFor="description">
@@ -404,14 +403,12 @@ export function AssetForm({ mode, asset, options }: AssetFormProps) {
         )}
 
         <Field label="Parent asset" htmlFor="parentAssetId">
-          <NativeSelect id="parentAssetId" name="parentAssetId" defaultValue={asset?.parentAssetId ?? ""}>
-            <option value="">None</option>
-            {options.linkableAssets.map((linkable) => (
-              <option key={linkable.id} value={linkable.id}>
-                {linkable.name}
-              </option>
-            ))}
-          </NativeSelect>
+          <AssetPicker
+            id="parentAssetId"
+            name="parentAssetId"
+            excludeAssetId={asset?.id}
+            initial={asset?.parentAssetId ? { id: asset.parentAssetId, name: asset.parentAssetName ?? "Parent asset" } : null}
+          />
         </Field>
 
         {field("department").show ? (

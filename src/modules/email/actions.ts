@@ -9,7 +9,7 @@ import { requirePermission } from "@/lib/permissions/has-permission";
 import { requireModule } from "@/lib/permissions/features";
 import { TENANT_READ_ONLY_MESSAGE, requireWritableTenant } from "@/lib/permissions/tenant-access";
 import { writeAuditLog } from "@/lib/audit-log";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { getRequestAuthUser } from "@/lib/supabase/server";
 import { getStaleOpenTickets } from "@/modules/maintenance/queries";
 import { getUpcomingWarrantyReminders } from "@/modules/assets/queries";
@@ -256,7 +256,7 @@ export async function sendTestEmailAction(_prev: EmailFormState, formData: FormD
   }
 
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`test-email:${companyId}:${ip}`, 3, 60_000)) {
+  if (await isRateLimited(`test-email:${companyId}:${ip}`, 3, 60_000)) {
     return { error: "Too many test emails. Try again in a minute." };
   }
 

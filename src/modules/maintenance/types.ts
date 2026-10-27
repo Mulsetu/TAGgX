@@ -70,6 +70,7 @@ export interface MaintenancePlanSummary {
   id: string;
   name: string;
   assetId: string;
+  assetName: string | null;
   frequency: string;
   nextDueAt: string;
   isActive: boolean;

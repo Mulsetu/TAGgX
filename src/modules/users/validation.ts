@@ -52,6 +52,22 @@ export const resendVerificationSchema = z.object({
   planId: signupPlanIdSchema.optional(),
 });
 
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password").max(200),
+    // 72 is bcrypt's limit; longer passwords would be silently truncated.
+    newPassword: z.string().min(8, "New password must be at least 8 characters").max(72, "Use 72 characters or fewer"),
+    confirmPassword: z.string().max(72),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "New passwords don't match.",
+    path: ["confirmPassword"],
+  })
+  .refine((data) => data.newPassword !== data.currentPassword, {
+    message: "Choose a password different from your current one.",
+    path: ["newPassword"],
+  });
+
 export const accountSignupSchema = z
   .object({
     fullName: z.string().trim().min(1, "Name is required").max(200),

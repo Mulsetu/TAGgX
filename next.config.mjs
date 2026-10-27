@@ -55,6 +55,8 @@ const CSP_DIRECTIVES = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Don't advertise the framework/version in an X-Powered-By header.
+  poweredByHeader: false,
   images: {
     remotePatterns: [
       ...(r2PublicHostname ? [{ protocol: "https", hostname: r2PublicHostname }] : []),

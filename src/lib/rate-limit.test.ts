@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clientIpFromHeaders, consumeRateLimit } from "./rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "./rate-limit";
 
 function headersFrom(entries: Record<string, string>) {
   return { get: (name: string) => entries[name.toLowerCase()] ?? null };
 }
 
-describe("consumeRateLimit", () => {
+describe("isRateLimited (local fallback, no Redis configured)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
@@ -15,30 +15,83 @@ describe("consumeRateLimit", () => {
     vi.useRealTimers();
   });
 
-  it("allows requests up to the limit, then blocks", () => {
+  it("allows requests up to the limit, then blocks", async () => {
     const key = `test:${Math.random()}`;
-    expect(consumeRateLimit(key, 3, 1000)).toBe(true);
-    expect(consumeRateLimit(key, 3, 1000)).toBe(true);
-    expect(consumeRateLimit(key, 3, 1000)).toBe(true);
-    expect(consumeRateLimit(key, 3, 1000)).toBe(false);
+    expect(await isRateLimited(key, 3, 1000)).toBe(false);
+    expect(await isRateLimited(key, 3, 1000)).toBe(false);
+    expect(await isRateLimited(key, 3, 1000)).toBe(false);
+    expect(await isRateLimited(key, 3, 1000)).toBe(true);
   });
 
-  it("resets after the window elapses", () => {
+  it("resets after the window elapses", async () => {
     const key = `test:${Math.random()}`;
-    expect(consumeRateLimit(key, 1, 1000)).toBe(true);
-    expect(consumeRateLimit(key, 1, 1000)).toBe(false);
+    expect(await isRateLimited(key, 1, 1000)).toBe(false);
+    expect(await isRateLimited(key, 1, 1000)).toBe(true);
 
     vi.setSystemTime(1001);
-    expect(consumeRateLimit(key, 1, 1000)).toBe(true);
+    expect(await isRateLimited(key, 1, 1000)).toBe(false);
   });
 
-  it("keeps separate buckets per key", () => {
+  it("keeps separate buckets per key", async () => {
     const keyA = `test-a:${Math.random()}`;
     const keyB = `test-b:${Math.random()}`;
-    expect(consumeRateLimit(keyA, 1, 1000)).toBe(true);
-    expect(consumeRateLimit(keyA, 1, 1000)).toBe(false);
+    expect(await isRateLimited(keyA, 1, 1000)).toBe(false);
+    expect(await isRateLimited(keyA, 1, 1000)).toBe(true);
     // A different key's bucket is untouched by A being exhausted.
-    expect(consumeRateLimit(keyB, 1, 1000)).toBe(true);
+    expect(await isRateLimited(keyB, 1, 1000)).toBe(false);
+  });
+});
+
+describe("isRateLimited (Redis configured)", () => {
+  beforeEach(() => {
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://redis.example.test/");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "test-token");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  function stubRedisCount(count: number) {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ result: "OK" }, { result: count }]), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("uses the shared Redis counter and sends one pipelined SET NX + INCR", async () => {
+    const fetchMock = stubRedisCount(2);
+    expect(await isRateLimited("login:1.2.3.4", 3, 60_000)).toBe(false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://redis.example.test/pipeline");
+    expect(init.headers).toMatchObject({ authorization: "Bearer test-token" });
+    expect(JSON.parse(String(init.body))).toEqual([
+      ["SET", "tagx:rl:login:1.2.3.4", "0", "PX", "60000", "NX"],
+      ["INCR", "tagx:rl:login:1.2.3.4"],
+    ]);
+  });
+
+  it("blocks once the shared count passes the limit", async () => {
+    stubRedisCount(4);
+    expect(await isRateLimited("login:1.2.3.4", 3, 60_000)).toBe(true);
+  });
+
+  it("falls back to the local window when Redis errors, instead of skipping the limit", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const key = `redis-down:${Math.random()}`;
+    expect(await isRateLimited(key, 1, 60_000)).toBe(false);
+    expect(await isRateLimited(key, 1, 60_000)).toBe(true);
+  });
+
+  it("falls back to the local window on a non-200 response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("unauthorized", { status: 401 })));
+    const key = `redis-401:${Math.random()}`;
+    expect(await isRateLimited(key, 1, 60_000)).toBe(false);
+    expect(await isRateLimited(key, 1, 60_000)).toBe(true);
   });
 });
 

@@ -22,7 +22,7 @@ export default async function MaintenancePlansPage() {
           Recurring plans generate tickets automatically when they come due.
         </p>
       </div>
-      <PlanList plans={plans} assets={options.linkableAssets} vendors={vendors} users={options.users} />
+      <PlanList plans={plans} vendors={vendors} users={options.users} />
     </div>
   );
 }

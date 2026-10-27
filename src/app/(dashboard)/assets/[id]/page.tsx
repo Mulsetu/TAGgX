@@ -152,7 +152,7 @@ export default async function AssetDetailPage({ params }: AssetDetailPageProps) 
     canQr,
     handoverAccessories,
   ] = await Promise.all([
-    getAssetFormOptionsForForm(asset.id),
+    getAssetFormOptionsForForm(),
     getAssetAttachmentsForDetail(asset.id),
     requirePermission("assets", "delete"),
     getAssetLocationHistoryForDetail(asset.id),

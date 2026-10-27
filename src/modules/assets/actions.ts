@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { isHostedAssetImage } from "@/lib/media-url";
 import { TENANT_HEADERS } from "@/lib/tenant";
-import { clientIpFromHeaders, consumeRateLimit } from "@/lib/rate-limit";
+import { clientIpFromHeaders, isRateLimited } from "@/lib/rate-limit";
 import { requirePermission } from "@/lib/permissions/has-permission";
 import { getWorkspaceRuntime, requireModule } from "@/lib/permissions/features";
 import { ASSET_FIELD_KEYS, parseAssetFieldConfig, type AssetFieldKey } from "@/lib/permissions/workspace-config";
@@ -24,6 +24,7 @@ import {
   getAssetDocumentById,
   getAssetFilterOptions,
   getAssetFormOptions,
+  searchAssetOptions,
   getPublicAssetById,
   listAssetLocationHistory,
   getCreatedAssetTrendPercent,
@@ -63,6 +64,7 @@ import {
   publicAssetIdSchema,
   publicAssetReportSchema,
   qrLabelsRequestSchema,
+  assetOptionSearchSchema,
 } from "./validation";
 import { getCategoryFieldsForAssetForm, getCategoryFieldsForCategory, getCategoryPrefixForAsset } from "@/modules/categories/actions";
 import { getVendorOptions } from "@/modules/vendors/actions";
@@ -87,6 +89,7 @@ import type {
   PublicAsset,
   PublicAssetReportState,
   QrLabel,
+  AssetOption,
   QrLabelsState,
   StatusAssetCount,
   TagPageViewer,
@@ -97,6 +100,7 @@ import {
   CUSTOM_IMPORT_PREFIX,
   PARTNER_NAME_IMPORT_COLUMN,
   QR_LABEL_LIMIT,
+  ASSET_OPTION_SEARCH_LIMIT,
 } from "./types";
 
 const EMPTY_ASSET_LIST: AssetListResult = { items: [], totalCount: 0, page: 1, pageSize: 25 };
@@ -106,7 +110,6 @@ const EMPTY_ASSET_FORM_OPTIONS: AssetFormOptions = {
   locations: [],
   statuses: [],
   users: [],
-  linkableAssets: [],
   categoryFields: [],
   conditions: [],
   vendors: [],
@@ -298,7 +301,7 @@ export async function submitPublicAssetReportAction(
 
   const email = parsed.data.email?.toLowerCase() ?? null;
   const ip = clientIpFromHeaders(headers());
-  if (!consumeRateLimit(`public-report:${ip}`, 5, PUBLIC_REPORT_WINDOW_MS)) {
+  if (await isRateLimited(`public-report:${ip}`, 5, PUBLIC_REPORT_WINDOW_MS)) {
     return { error: "Too many reports from this network. Try again in a few minutes." };
   }
 
@@ -327,16 +330,21 @@ export async function submitPublicAssetReportAction(
 }
 
 /** Dropdown options for /assets/new and /assets/[id]'s edit form. */
-export async function getAssetFormOptionsForForm(excludeAssetId?: string): Promise<AssetFormOptions> {
-  const canRead =
-    (await requirePermission("assets", "view")) ||
-    (await requirePermission("assets", "create")) ||
-    (await requirePermission("maintenance", "view"));
-  if (!canRead) {
+async function canReadAssetOptions(): Promise<boolean> {
+  const checks = await Promise.all([
+    requirePermission("assets", "view"),
+    requirePermission("assets", "create"),
+    requirePermission("maintenance", "view"),
+  ]);
+  return checks.some(Boolean);
+}
+
+export async function getAssetFormOptionsForForm(): Promise<AssetFormOptions> {
+  if (!(await canReadAssetOptions())) {
     return EMPTY_ASSET_FORM_OPTIONS;
   }
   const [options, categoryFields, vendors, runtime] = await Promise.all([
-    getAssetFormOptions(excludeAssetId),
+    getAssetFormOptions(),
     getCategoryFieldsForAssetForm(),
     getVendorOptions(),
     getWorkspaceRuntime(),
@@ -349,6 +357,15 @@ export async function getAssetFormOptionsForForm(excludeAssetId?: string): Promi
     departments: runtime.departments,
     disposalMethods: runtime.disposalMethods,
   };
+}
+
+/** Type-ahead for asset pickers (linked/parent asset, maintenance tickets and plans). */
+export async function searchAssetOptionsAction(search: unknown, excludeAssetId?: unknown): Promise<AssetOption[]> {
+  const parsed = assetOptionSearchSchema.safeParse({ search, excludeAssetId });
+  if (!parsed.success || !(await canReadAssetOptions())) {
+    return [];
+  }
+  return searchAssetOptions(parsed.data.search, parsed.data.excludeAssetId, ASSET_OPTION_SEARCH_LIMIT);
 }
 
 /** Category/location options for the /assets list page's filter bar. */
@@ -562,7 +579,7 @@ export async function createAssetAction(
   }
 
   const assetCreateKey = `asset-create:${companyId}:${clientIpFromHeaders(headers())}`;
-  if (!consumeRateLimit(assetCreateKey, 120, 60 * 60 * 1000)) {
+  if (await isRateLimited(assetCreateKey, 120, 60 * 60 * 1000)) {
     return { error: "Too many assets created. Try again later." };
   }
 
@@ -803,7 +820,7 @@ export async function getQrLabelsAction(input: {
   if (!companyId || !user) {
     return { error: "Could not determine your company." };
   }
-  if (!consumeRateLimit(`qr-bulk:${user.id}`, 30, 60 * 60 * 1000)) {
+  if (await isRateLimited(`qr-bulk:${user.id}`, 30, 60 * 60 * 1000)) {
     return { error: "Too many QR downloads. Try again later." };
   }
 
@@ -1233,7 +1250,7 @@ export async function importAssetsCsvAction(_prev: AssetImportState, formData: F
   if (!companyId || !user) {
     return { error: "Could not determine your company." };
   }
-  if (!consumeRateLimit(`asset-import:${companyId}`, 20, 60 * 60 * 1000)) {
+  if (await isRateLimited(`asset-import:${companyId}`, 20, 60 * 60 * 1000)) {
     return { error: "Too many imports. Try again later." };
   }
 
